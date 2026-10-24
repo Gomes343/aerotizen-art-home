@@ -111,7 +111,7 @@ test('YouTube rejects an unavailable /leave handoff without racing the watcher',
   h.A.apps.launch({ id: 'youtube.app', name: 'YouTube' });
   h.requests[0].resolve(503);
   assert.equal(h.launches.length, 0);
-  assert.equal(h.resume.length, 1);
+  assert.equal(h.requests[1].url, 'http://127.0.0.1:47790/home');
   assert.match(h.toasts[0], /HomeWatcher HTTP 503/);
 });
 
@@ -127,7 +127,7 @@ test('denied YouTube launch rearms HomeWatcher', () => {
   const h = harness({ launchFails: 'youtube.app' });
   h.A.apps.launch({ id: 'youtube.app', name: 'YouTube' });
   h.requests[0].resolve(200);
-  assert.equal(h.resume.length, 1);
+  assert.equal(h.requests[1].url, 'http://127.0.0.1:47790/home');
   assert.match(h.toasts[0], /Could not open YouTube/);
 });
 

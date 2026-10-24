@@ -157,6 +157,7 @@
 
   // YouTube/Cobalt also needs an acknowledged /leave to avoid premature
   // HOME relaunch when its Samsung status never reports visible=true.
+  A.homewatch.resume = rearmWatcher;
   A.homewatch.suspendForExternal = leaveBeforeLaunch;
   A.homewatch.openSamsungHome = openSamsungHome;
   A.homewatch.openNativeLiveTV = openNativeLiveTV;
