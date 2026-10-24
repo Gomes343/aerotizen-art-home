@@ -78,6 +78,26 @@
       } catch (e) { A.toast('Could not open ' + label); }
       return;
     }
+    // Samsung's preloaded Cobalt YouTube sometimes reports visible=false.
+    // The V992.56 device-tested fix waits for /leave acknowledgement before
+    // launching; otherwise HomeWatcher can immediately reclaim the screen.
+    var isYouTube = /^youtube$/i.test(String(app.name || '').trim());
+    if (isYouTube && A.homewatch && A.homewatch.suspendForExternal) {
+      function youtubeFailed(reason) {
+        if (A.homewatch.resume) { A.homewatch.resume(); }
+        A.toast('Could not open ' + label + (reason ? ': ' + reason : ''));
+      }
+      A.homewatch.suspendForExternal(function () {
+        try {
+          tz.application.launch(app.id, null, function () { youtubeFailed('launch denied'); });
+        } catch (error) {
+          youtubeFailed('launch failed');
+        }
+      }, youtubeFailed);
+      return;
+    }
+    // Preserve upstream app /watch behaviour when the optional handoff
+    // module is absent and for all non-YouTube / HbbTV applications.
     A.homewatch.watch(app.id);
     tz.application.launch(app.id, null, function () { A.toast('Could not open ' + label); });
   };
