@@ -9,9 +9,14 @@ A simple home screen for Samsung TVs, and a command-line tool to clean the TV up
 
 Built with help from these contributors. [Join them](CONTRIBUTING.md): testing on your TV counts too.
 
-<a href="https://github.com/helalaou/AeroTizen/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=helalaou/AeroTizen" alt="AeroTizen contributors">
-</a>
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/helalaou"><img src="https://github.com/helalaou.png?size=100" width="64" height="64" alt="helalaou"><br><sub>helalaou</sub></a></td>
+    <td align="center"><a href="https://github.com/metacurb"><img src="https://github.com/metacurb.png?size=100" width="64" height="64" alt="metacurb"><br><sub>metacurb</sub></a></td>
+    <td align="center"><a href="https://github.com/oflarcade"><img src="https://github.com/oflarcade.png?size=100" width="64" height="64" alt="oflarcade"><br><sub>oflarcade</sub></a></td>
+    <td align="center"><a href="https://github.com/motorgrid-ita"><img src="https://github.com/motorgrid-ita.png?size=100" width="64" height="64" alt="motorgrid-ita"><br><sub>motorgrid-ita</sub></a></td>
+  </tr>
+</table>
 
 ![AeroTizen home screen on a Samsung TV](docs/screenshots/app-cards-samsung-tv.png)
 
@@ -38,7 +43,7 @@ On the TV:
   **Small** (5 across). Apps without artwork show their icon and name
 - **Home** and **All apps** tabs: keep favourites on Home and open any installed app from All apps
 - Opens at power-on and comes back when you press Home (see [Limits](#limits))
-- Hold OK on a tile to move it around
+- Hold OK on a tile for **Move**, **Add to Home** or **Remove from Home**
 - Opens HbbTV apps such as BBC iPlayer
 - Inputs list every HDMI port and the name of what's plugged in. You can rename them, and hide
   disconnected ports or the Live TV tile
