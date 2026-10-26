@@ -21,7 +21,7 @@ Built with help from these contributors. [Join them](CONTRIBUTING.md): testing o
 </table>
 <!-- contributors:end -->
 
-![AeroTizen home screen on a Samsung TV](docs/screenshots/app-cards-samsung-tv.png)
+![AeroTizen home screen on a Samsung TV](docs/screenshots/home.png)
 
 ## Motivation
 
@@ -74,11 +74,13 @@ From your computer (`aerotizen`):
 There's also a short [guide to the settings worth turning off](docs/settings.md) (ads, viewing
 data, autorun) and [DNS blocklists](dns/) if you run Pi-hole, AdGuard Home or NextDNS.
 
-| Settings | Moving a tile |
+| All apps | Hold OK on a tile |
 |---|---|
-| ![Settings](docs/screenshots/settings.png) | ![Moving a tile](docs/screenshots/move.png) |
+| ![All apps](docs/screenshots/all-apps.png) | ![Tile menu](docs/screenshots/tile-menu.png) |
 
-The device names and weather in these screenshots are placeholders.
+| Settings | More settings |
+|---|---|
+| ![Settings](docs/screenshots/settings.png) | ![Weather, temperature and date settings](docs/screenshots/settings-more.png) |
 
 ## Tested on
 
