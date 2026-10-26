@@ -9,14 +9,17 @@ A simple home screen for Samsung TVs, and a command-line tool to clean the TV up
 
 Built with help from these contributors. [Join them](CONTRIBUTING.md): testing on your TV counts too.
 
+<!-- contributors:start -->
 <table>
   <tr>
     <td align="center"><a href="https://github.com/helalaou"><img src="https://github.com/helalaou.png?size=100" width="64" height="64" alt="helalaou"><br><sub>helalaou</sub></a></td>
     <td align="center"><a href="https://github.com/metacurb"><img src="https://github.com/metacurb.png?size=100" width="64" height="64" alt="metacurb"><br><sub>metacurb</sub></a></td>
     <td align="center"><a href="https://github.com/oflarcade"><img src="https://github.com/oflarcade.png?size=100" width="64" height="64" alt="oflarcade"><br><sub>oflarcade</sub></a></td>
     <td align="center"><a href="https://github.com/motorgrid-ita"><img src="https://github.com/motorgrid-ita.png?size=100" width="64" height="64" alt="motorgrid-ita"><br><sub>motorgrid-ita</sub></a></td>
+    <td align="center"><a href="https://github.com/cvvspb"><img src="https://github.com/cvvspb.png?size=100" width="64" height="64" alt="cvvspb"><br><sub>cvvspb</sub></a></td>
   </tr>
 </table>
+<!-- contributors:end -->
 
 ![AeroTizen home screen on a Samsung TV](docs/screenshots/app-cards-samsung-tv.png)
 
