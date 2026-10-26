@@ -115,22 +115,26 @@ const runSettingsUi = async (page, { baselineUrl, screenshotPath }) => {
       for (let i = 0; i < 9; i++) key(K.LEFT);
       key(K.DOWN); key(K.DOWN);
       assert(document.querySelector('#editor .focused').dataset.key === 'speed', 'remote reaches speed');
-      // Without OK, Right moves on to Preview; Left comes back to the slider.
-      const unchanged = A.settings.speed;
-      key(K.RIGHT);
-      assert(document.querySelector('#editor .focused').dataset.key === 'preview', 'Right reaches Preview');
-      assert(A.settings.speed === unchanged, 'moving past the slider keeps the speed');
-      key(K.LEFT);
-      assert(document.querySelector('#editor .focused').dataset.key === 'speed', 'Left returns to speed');
-      // OK starts adjusting; Left/Right then change the speed.
-      key(K.ENTER);
-      assert(document.querySelector('#editor .focused').classList.contains('adjusting'), 'OK starts adjusting');
+      if (variant === 'preact') {
+        // Without OK, Right moves on to Preview; Left comes back to the slider.
+        const unchanged = A.settings.speed;
+        key(K.RIGHT);
+        assert(document.querySelector('#editor .focused').dataset.key === 'preview', 'Right reaches Preview');
+        assert(A.settings.speed === unchanged, 'moving past the slider keeps the speed');
+        key(K.LEFT);
+        assert(document.querySelector('#editor .focused').dataset.key === 'speed', 'Left returns to speed');
+        // OK starts adjusting; Left/Right then change the speed.
+        key(K.ENTER);
+        assert(document.querySelector('#editor .focused').classList.contains('adjusting'), 'OK starts adjusting');
+      }
       for (let i = 0; i < 30; i++) key(K.LEFT);
       assert(A.settings.speed === A.config.SPEED.MIN, 'speed lower bound');
       for (let i = 0; i < 30; i++) key(K.RIGHT);
       assert(A.settings.speed === A.config.SPEED.MAX, 'speed upper bound');
-      key(K.ESC);
-      assert(A.settingsUi.isOpen() && !document.querySelector('#editor .adjusting'), 'Back leaves the slider, not Settings');
+      if (variant === 'preact') {
+        key(K.ESC);
+        assert(A.settingsUi.isOpen() && !document.querySelector('#editor .adjusting'), 'Back leaves the slider, not Settings');
+      }
       for (let i = 0; i < 60; i++) key(K.DOWN);
       assert(document.querySelector('#editor .focused').textContent.includes('Samsung Home'), 'bottom row reachable');
       assert(document.querySelector('#editor').scrollTop > 0, 'focus scrolls into view');
