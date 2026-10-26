@@ -79,13 +79,15 @@ The device names and weather in these screenshots are placeholders.
 
 ## Tested on
 
-| TV | Year | Firmware |
-|---|---|---|
-| Samsung 65" Crystal UHD DU7200 (UN65DU7200FXZA) | 2024 | Tizen 9.0 |
-| Samsung 65" The Frame LS03D (QE65LS03DAUXXU) | 2024 | Tizen 9.0 |
-| Samsung 65" OLED S90C (QE65S90CATXZT) | 2023 | Tizen 7.0 |
-| Samsung 75" QLED Q60B (QE75Q60BAUXXC) | 2022 | Tizen 6.5 |
-| Samsung 55" OLED S95B (QE55S95BATXXC) | 2022 | Tizen 6.5 |
+| TV | Year | Firmware | Notes |
+|---|---|---|---|
+| Samsung 65" Crystal UHD DU7200 (UN65DU7200FXZA) | 2024 | Tizen 9.0 | |
+| Samsung 65" The Frame LS03D (QE65LS03DAUXXU) | 2024 | Tizen 9.0 | |
+| Samsung 70" Crystal UHD CU7000 (UN70CU7000DXZA) | 2023 | Tizen 9.0 | |
+| Samsung 65" OLED S90C (QE65S90CATXZT) | 2023 | Tizen 7.0 | |
+| Samsung 75" QLED Q60B (QE75Q60BAUXXC) | 2022 | Tizen 6.5 | |
+| Samsung 55" OLED S95B (QE55S95BATXXC) | 2022 | Tizen 6.5 | Live TV and cold boot issues ([#46](../../issues/46), [#47](../../issues/47)) |
+| Samsung 65" The Frame LS03A (QN65LS03AAFXZC) | 2021 | | Runs, but doesn't return on Home or start at power-on yet |
 
 Other Samsung TVs from 2020 on should work, but these are the only models tested so far. If you try it
 on yours, please [open a model report](../../issues/new?template=model_report.yml).
@@ -117,7 +119,9 @@ You need a computer on the same network as the TV.
 
 2. Turn on Developer Mode on the TV. Open **Apps**, type `12345` on the remote (or with the
    on-screen number pad), switch Developer mode on, and set Host PC IP to your computer's IP.
-   Then unplug the TV for a minute. Turning it off with the remote isn't enough for the change to
+   On some newer firmware `12345` only works from **Apps → App Settings** (at the bottom of the
+   Apps tab). Check all four numbers of the IP before pressing OK: the first one doesn't always
+   change. Then unplug the TV for a minute. Turning it off with the remote isn't enough for the change to
    apply. `./aerotizen status` should now show `developerMode=1`.
 
 3. Create the certificates. This opens Samsung's sign-in page in your browser:
@@ -168,6 +172,8 @@ To look at or remove installed apps, run `./aerotizen apps` and `./aerotizen deb
 
 Samsung doesn't support any of this officially, so some parts are workarounds:
 
+- At power-on, Samsung's **Autorun Samsung TV Plus** and **Autorun Last App** settings can open
+  something before AeroTizen does. Turn them off (see the [settings guide](docs/settings.md)).
 - Pressing Home brings AeroTizen back after a second or two. That works from Samsung's home
   screen and inside Netflix, but not inside YouTube, Prime Video, Stremio, Spotify or HbbTV apps. Those apps
   don't report whether they're on screen, so there's no way to tell. Back still works everywhere.
