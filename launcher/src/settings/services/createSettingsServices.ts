@@ -28,7 +28,12 @@ export const createSettingsServices = (runtime: LauncherRuntime): SettingsServic
   applyInputs: () => runtime.inputs.render(),
   applyCardSize: () => runtime.homeScreen.render(),
   openStore: () => runtime.apps.openStore(),
-  useSamsungHome: () => runtime.homewatch.useSamsungHome(),
+  useSamsungHome() {
+    // Native navigation owns the acknowledged handoff, not physical HOME routing.
+    // Keep the original escape available when that optional module is absent.
+    if (runtime.homewatch.openSamsungHome) { runtime.homewatch.openSamsungHome(); }
+    else { runtime.homewatch.useSamsungHome(); }
+  },
   finishEditing() { runtime.settings.save(); runtime.homeScreen.render(); },
   clearHomeFocus: () => runtime.clearFocus(),
   showPreviewMessage: () => runtime.toast('Previewing. Press any key to return'),

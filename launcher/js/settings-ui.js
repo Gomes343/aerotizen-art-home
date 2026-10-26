@@ -295,7 +295,7 @@
     if (cur && cur.adjust && (k === KEY.LEFT || k === KEY.RIGHT)) { return cur.adjust(k === KEY.LEFT ? -1 : 1); }
     if (k === KEY.ENTER) {
       focusKey = cur && cur.dataset.key;
-      if (cur === A.$('escape')) { (A.homewatch.openSamsungHome || A.homewatch.useSamsungHome)(); } else if (cur && cur.onclick) { cur.onclick(); }
+      if (cur === A.$('escape')) { A.homewatch.useSamsungHome(); } else if (cur && cur.onclick) { cur.onclick(); }
       return;
     }
     focusKey = null;
