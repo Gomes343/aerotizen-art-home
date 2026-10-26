@@ -8,6 +8,7 @@
   aerotizen certs               sign in to Samsung, create signing certs for this TV
   aerotizen install launcher    download, sign, and install the latest launcher
   aerotizen install PATH        sign + install a local app folder or .wgt
+  aerotizen uninstall launcher  remove the launcher (or: uninstall APPID for another app you installed)
   aerotizen key KEY_VOLUP [n]   press a remote button
   aerotizen launch APPID        open an app and check that it came up
   aerotizen inspect launcher    restart the launcher with Chrome DevTools
@@ -156,7 +157,7 @@ def cmd_debloat(args):
 
     current, refused = before, []
     for pkgid in chosen:
-        out = s.uninstall(pkgid).strip()
+        out = s.uninstall(pkgs[pkgid]["apps"][0]["appid"]).strip()
         after = s.applist()
         gone = pkgid not in packages(after)
         print(f"{'removed' if gone else 'STILL PRESENT'}  {pkgs[pkgid]['name']} ({pkgid})")
@@ -275,6 +276,27 @@ def cmd_install(args):
         sys.exit(f"Install failed: {exc}")
 
 
+def cmd_uninstall(args):
+    from aerotizen import releases
+
+    app_id = releases.APP_ID if args.appid == "launcher" else args.appid
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", app_id):
+        sys.exit("Expected 'launcher' or an application ID (letters, digits, _, . or -).")
+    with require_sdb(pick_tv(args)) as s:
+        installed = {a["appid"]: a for a in catalog.parse_applist(s.applist())}
+        if app_id not in installed:
+            sys.exit(f"{app_id} is not installed.")
+        name = installed[app_id]["name"]
+        note = " Its settings on the TV are removed too." if app_id == releases.APP_ID else ""
+        if not args.yes and input(f"Uninstall {name} ({app_id})?{note} [y/N] ").strip().lower() != "y":
+            return
+        out = s.uninstall(app_id).strip()
+        if app_id in {a["appid"] for a in catalog.parse_applist(s.applist())}:
+            reason = next((ln for ln in out.splitlines() if "fail" in ln or "can not" in ln), out[-120:])
+            sys.exit(f"{name} is still installed. TV said: {reason or '(nothing)'}")
+        print(f"Uninstalled {name} ({app_id}).")
+
+
 def cmd_key(args):
     with remote.Remote(pick_tv(args)) as r:
         r.key(args.key, args.times)
@@ -362,6 +384,10 @@ def main():
         "--release-repo", metavar="OWNER/REPO", help="download launcher releases from this repository"
     )
     p.set_defaults(fn=cmd_install)
+    p = sub.add_parser("uninstall", help="remove the launcher or another app you installed")
+    p.add_argument("appid", help="'launcher' or an application ID")
+    p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
+    p.set_defaults(fn=cmd_uninstall)
     p = sub.add_parser("key")
     p.add_argument("key")
     p.add_argument("times", nargs="?", type=int, default=1)

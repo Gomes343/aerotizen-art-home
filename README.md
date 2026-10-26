@@ -171,7 +171,8 @@ a restart.
 
 For accurate weather, open **Settings → Weather** and search for your town or postcode.
 
-To look at or remove installed apps, run `./aerotizen apps` and `./aerotizen debloat`.
+To look at or remove installed apps, run `./aerotizen apps` and `./aerotizen debloat`. To remove AeroTizen itself, run
+`./aerotizen uninstall launcher`.
 
 ## Limits
 
