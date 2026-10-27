@@ -30,6 +30,45 @@ const openSettings = async (page, waitForApps = true) => {
   await expect(page.locator('[data-key="bg:black"]')).toHaveClass(/focused/);
 };
 
+test('compiled Settings escape waits for /leave before launching native Samsung Home by remote', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.nativeLaunches = [];
+    window.tizen = {
+      ApplicationControl: function (operation) { this.operation = operation; },
+      application: {
+        getAppsInfo: done => done([{ id: 'test.app', name: 'Test app', packageId: '1234567890' }]),
+        launch(id, done) { window.nativeLaunches.push(id); done?.(); },
+        launchAppControl() {}
+      },
+      systeminfo: { getPropertyValue(name, done, fail) { fail?.(); }, addPropertyValueChangeListener() {} }
+    };
+  });
+  let acknowledge;
+  await page.route('http://127.0.0.1:47790/leave', route => new Promise(resolve => {
+    acknowledge = async () => { await route.fulfill({ status: 200, body: '{}' }); resolve(); };
+  }));
+  await openSettings(page);
+  const escape = page.getByRole('button', { name: 'Use Samsung Home instead', exact: true });
+  await escape.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => typeof acknowledge).toBe('function');
+  expect(await page.evaluate(() => window.nativeLaunches)).toEqual([]);
+  await acknowledge();
+  await expect.poll(() => page.evaluate(() => window.nativeLaunches)).toEqual(['com.samsung.tv.csfs']);
+  expect(await page.evaluate(() => AeroTizen.homewatch.isLeaving())).toBe(false);
+});
+
+test('compiled Settings retains the original Samsung Home escape without the optional native module', async ({ page }) => {
+  await openSettings(page);
+  await page.evaluate(() => {
+    delete AeroTizen.homewatch.openSamsungHome;
+    window.legacyEscapes = 0;
+    AeroTizen.homewatch.useSamsungHome = () => { window.legacyEscapes++; };
+  });
+  await page.getByRole('button', { name: 'Use Samsung Home instead', exact: true }).click();
+  expect(await page.evaluate(() => window.legacyEscapes)).toBe(1);
+});
+
 test('Settings matches legacy remote, persistence, search and artwork behaviour', async ({ page }, info) => {
   await page.goto('/');
   const result = await runSettingsUi(page, { baselineUrl: 'http://127.0.0.1:8170',

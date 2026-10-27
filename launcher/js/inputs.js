@@ -73,6 +73,11 @@
   };
 
   inputs.show = function (s) {
+    // Native Live TV owns channel selection and remote control, unlike the
+    // upstream embedded TVWindow. If unsupported, preserve TVWindow fallback.
+    if (s && s.type === 'TV' && A.homewatch &&
+        typeof A.homewatch.openNativeLiveTV === 'function' &&
+        A.homewatch.openNativeLiveTV(s.raw || s) !== false) { return; }
     if (!tz || !tz.tvwindow) { return A.toast('Would switch to ' + inputs.label(s)); }
     try {
       tz.tvwindow.setSource(s.raw || s, function () {

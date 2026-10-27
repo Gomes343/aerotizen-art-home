@@ -245,6 +245,9 @@ Samsung doesn't support any of this officially, so some parts are workarounds:
   don't report whether they're on screen, so there's no way to tell. Back still works everywhere.
   After Home in one of them, AeroTizen comes back once that app closes or you open an app that does
   report itself, such as Netflix. You can also open AeroTizen from Samsung's app row.
+- **Live TV and YouTube** open in Samsung's own player, so the remote works normally there. The
+  watcher pauses while they're open, so with the watcher, Home from Live TV or YouTube leaves you on
+  Samsung Home; use Back, or open AeroTizen from the app row. Native Home returns from both.
 - **Watcher on The Frame:** AeroTizen checks Art Mode before every return and stays out of the way while it's
   on. If the TV doesn't report its power or Art Mode state, AeroTizen waits rather than guess.
   Tested on a 2024 Frame (QE65LS03DAUXXU, Tizen 9.0); starting from a cold boot isn't verified yet.

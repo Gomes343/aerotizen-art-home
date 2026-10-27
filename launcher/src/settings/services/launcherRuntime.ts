@@ -10,7 +10,7 @@ export interface LauncherRuntime {
   inputs: { sources: InputSource[]; portName(source: InputSource): string; render(): void; subscribe(listener: () => void): () => void };
   homeScreen: { render(): void };
   apps: { all: InstalledApp[]; openStore(): void; subscribe(listener: () => void): () => void };
-  homewatch: { useSamsungHome(): void };
+  homewatch: { useSamsungHome(): void; openSamsungHome?(): void };
   tiles: { describe(app: InstalledApp): AppPresentation };
   settingsUi: SettingsBridge;
   clearFocus(): void; toast(message: string): void; hideToast(): void; applyBackground(): void;
