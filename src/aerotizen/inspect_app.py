@@ -3,7 +3,8 @@
 import time
 import urllib.request
 
-from aerotizen.sdb import Sdb, SdbError
+from aerotizen.device import DeviceSession
+from aerotizen.sdb import SdbError
 
 ATTEMPTS = 4
 
@@ -20,10 +21,9 @@ def stop(host, app_id):
 
 
 def run(host, app_id, local_port=9222):
-    # Debug launch only works when the app isn't running, and the launcher's Home watcher
-    # reopens it within a second of closing. So connect first, then stop and launch back to
-    # back, and try again if the watcher won the race.
-    with Sdb(host, timeout=60).connect() as connection:
+    # Own the TV connection before stopping the app. Keep stop and debug launch
+    # together so the watcher has less time to reopen the app between them.
+    with DeviceSession(host, timeout=60).connect() as connection:
         for attempt in range(ATTEMPTS):
             stop(host, app_id)
             try:
