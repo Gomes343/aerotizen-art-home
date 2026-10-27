@@ -5,6 +5,7 @@ from contextlib import nullcontext
 import pytest
 
 from aerotizen import cli, inspect_app, releases
+from aerotizen.device import DeviceSessionError
 from aerotizen.sdb import SdbError
 
 
@@ -45,7 +46,7 @@ def inspector(monkeypatch):
 
     monkeypatch.setattr(inspect_app.urllib.request, "urlopen", stop)
     monkeypatch.setattr(inspect_app.time, "sleep", lambda delay: events.append(("wait", delay)))
-    monkeypatch.setattr(inspect_app, "Sdb", Connection)
+    monkeypatch.setattr(inspect_app, "DeviceSession", Connection)
     return events, failures
 
 
@@ -99,6 +100,19 @@ def test_inspect_reports_forwarding_errors_and_closes_the_session(monkeypatch, i
     with pytest.raises(SystemExit, match="Inspect failed: port already in use"):
         cli.main()
     assert events[-1] == ("close",)
+
+
+def test_busy_device_does_not_stop_the_app(monkeypatch, inspector):
+    events, _ = inspector
+
+    def busy(*args, **kwargs):
+        raise DeviceSessionError("Another AeroTizen session owns this TV")
+
+    monkeypatch.setattr(inspect_app, "DeviceSession", busy)
+    monkeypatch.setattr("sys.argv", ["aerotizen", "--tv", "tv", "inspect", "launcher"])
+    with pytest.raises(SystemExit, match="Another AeroTizen"):
+        cli.main()
+    assert events == []
 
 
 @pytest.mark.parametrize(
