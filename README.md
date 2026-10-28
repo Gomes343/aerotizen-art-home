@@ -1,3 +1,10 @@
+> **This is a fork: AeroTizen + [Art Home](art-home/README.md).** Art Home replaces the launcher's
+> interface with a public-domain art gallery (frame mode, matted paintings), camera grid with live
+> video, detection pop-ups from Frigate, and energy saving — while AeroTizen's native Home service
+> stays untouched. Everything below is the original AeroTizen README by Hamza El Alaoui.
+
+---
+
 # AeroTizen
 
 [![CI](https://github.com/helalaou/AeroTizen/actions/workflows/ci.yml/badge.svg)](https://github.com/helalaou/AeroTizen/actions/workflows/ci.yml)

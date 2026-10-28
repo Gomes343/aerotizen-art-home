@@ -1,0 +1,7 @@
+# your house: IPs, entity ids, camera names
+config.json
+*.local.json
+# built package and downloaded artworks
+dist/
+server/art/
+__pycache__/

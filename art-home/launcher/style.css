@@ -1,0 +1,113 @@
+/* Art Home — fixed 1920x1080 (the TV scales it to 4K). The TV CPU is weak: only opacity and
+   transform animate; no blur, filters or animated shadows. */
+:root {
+  --text: #f5f3ee;
+  --text-soft: rgba(245, 243, 238, 0.72);
+  --glass: rgba(14, 16, 22, 0.42);
+  --glass-focus: rgba(250, 248, 244, 0.95);
+  --radius: 22px;
+  --font: "SamsungOneUI", "SamsungOne", "Tizen Sans", "Helvetica Neue", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 1920px; height: 1080px; overflow: hidden;
+  background: #111; color: var(--text); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; cursor: none;
+}
+
+/* ---- the artwork ---- */
+#stage, .layer, #veil { position: absolute; inset: 0; }
+.layer { opacity: 0; transition: opacity 2.4s ease; display: flex; align-items: center; justify-content: center; }
+.layer.shown { opacity: 1; }
+.layer img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* artwork that isn't ~16:9 gets a mat in its own average colour, like a framed print — never cropped */
+.layer.matted img {
+  width: auto; height: auto; max-width: 78%; max-height: 74%; object-fit: contain;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45), 0 0 0 10px rgba(255, 255, 255, 0.06);
+  transform: translateY(-2%) scale(0.68);   /* with the UI on screen, the artwork steps back */
+  transition: transform 1.2s ease;
+}
+body.frame .layer.matted img { transform: none; }
+
+/* gradient only at the top and bottom, so text reads on any painting */
+#veil {
+  background:
+    linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 26%),
+    linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0) 34%);
+  transition: opacity 1.2s ease;
+}
+
+/* ---- home UI ---- */
+#ui { position: absolute; inset: 0; transition: opacity 1.2s ease; }
+body.frame #ui, body.frame #veil { opacity: 0; }
+
+header { position: absolute; top: 64px; left: 96px; right: 96px; display: flex; justify-content: space-between; align-items: flex-start; }
+#clock { font-size: 150px; font-weight: 200; line-height: 0.9; letter-spacing: -4px; text-shadow: 0 2px 24px rgba(0,0,0,0.35); }
+#date { margin-top: 18px; font-size: 34px; font-weight: 400; color: var(--text-soft); }
+#weather { text-align: right; padding-top: 14px; }
+#weather-temp { font-size: 76px; font-weight: 200; line-height: 1; }
+#weather-text { margin-top: 10px; font-size: 28px; color: var(--text-soft); }
+
+footer { position: absolute; left: 96px; right: 96px; bottom: 64px; display: flex; align-items: flex-end; justify-content: space-between; gap: 48px; }
+
+#apps { display: flex; gap: 20px; flex-shrink: 0; }
+.app {
+  width: 192px; height: 132px; border-radius: var(--radius);
+  background: var(--glass); border: 1px solid rgba(255,255,255,0.14);
+  display: flex; flex-direction: column; justify-content: space-between; padding: 20px 22px;
+  transition: transform 0.18s ease, background-color 0.18s ease;
+  will-change: transform;
+}
+.app .badge {
+  width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 700; color: #fff;
+}
+.app .name { font-size: 26px; font-weight: 500; }
+.app.focus { transform: scale(1.08); background: var(--glass-focus); color: #15171c; border-color: transparent; }
+
+#credit { min-width: 320px; max-width: 440px; text-align: right; font-size: 20px; line-height: 1.45; color: var(--text-soft); }
+#credit b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+            font-size: 23px; font-weight: 500; color: var(--text); }   /* long titles: 2 lines + ellipsis */
+
+#toast {
+  position: absolute; left: 50%; top: 56px; transform: translateX(-50%); z-index: 60;
+  background: rgba(14,16,22,0.85); padding: 18px 30px; border-radius: 16px; font-size: 26px;
+}
+
+/* ---- cameras ---- */
+body.in-cameras #ui, body.in-cameras #veil { opacity: 0; }
+#cameras { position: absolute; inset: 0; background: #0b0d12; padding: 64px 96px; }
+#cam-title { font-size: 46px; font-weight: 300; margin-bottom: 36px; }
+#cam-grid { display: grid; grid-template-columns: repeat(3, 552px); gap: 30px; justify-content: center; }
+.cam { position: relative; width: 552px; height: 310px; border-radius: 18px; overflow: hidden; background: #1a1d24;
+       transition: transform 0.18s ease; will-change: transform; }
+.cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam.focus { transform: scale(1.05); box-shadow: 0 0 0 5px #f5f3ee; }
+.cam-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 18px; font-size: 24px; font-weight: 500;
+             background: linear-gradient(to top, rgba(0,0,0,0.7), rgba(0,0,0,0)); }
+.cam-down { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 26px; color: var(--text-soft); background: rgba(11,13,18,0.7); }
+.cam-down[hidden] { display: none; }   /* [hidden] loses to the class's display otherwise */
+#cam-hint, #cam-full-hint { position: absolute; bottom: 48px; left: 0; right: 0; text-align: center; font-size: 22px; color: var(--text-soft); }
+#cam-full { position: absolute; inset: 0; background: #000; }
+#cam-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+#cam-full-top { position: absolute; top: 48px; left: 64px; font-size: 34px; font-weight: 500; text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
+#cam-full-note { font-size: 24px; font-weight: 400; color: var(--text-soft); margin-left: 12px; }
+
+/* ---- detection pop-up (top right, above everything that is ours) ---- */
+#alert {
+  position: absolute; top: 40px; right: 40px; width: 460px; z-index: 50;
+  border-radius: 20px; overflow: hidden; background: rgba(12, 14, 20, 0.92);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(255, 90, 70, 0.85);
+  opacity: 0; transform: translateX(40px); transition: opacity 0.35s ease, transform 0.35s ease;
+}
+#alert.shown { opacity: 1; transform: none; }
+#alert-photo { display: block; width: 100%; height: 259px; object-fit: cover; background: #1a1d24; }
+#alert-text { padding: 16px 20px 18px; }
+#alert-title { font-size: 28px; font-weight: 600; }
+#alert-time { margin-top: 6px; font-size: 20px; color: var(--text-soft); white-space: pre; }
+
+/* ---- energy saving: a black veil that dims the artwork (energy.js) ---- */
+#dimmer { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 40; }

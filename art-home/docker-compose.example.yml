@@ -1,0 +1,23 @@
+# Art Home server in Docker. Copy to docker-compose.yml next to your config.json.
+#   docker compose up -d        (HA_TOKEN in a .env file next to it)
+services:
+  art-home:
+    image: python:3.13-slim
+    container_name: art-home
+    restart: unless-stopped
+    network_mode: host                     # serves port 8895 on the LAN
+    working_dir: /srv
+    command: ["python", "-u", "server.py"]
+    environment:
+      ART_HOME_CONFIG: /srv/config.json
+      ART_HOME_ART: /srv/art
+      ART_HOME_APP: /srv/package
+      HA_TOKEN: ${HA_TOKEN:-}
+    volumes:
+      - ./server/server.py:/srv/server.py:ro
+      - ./server/demo:/srv/demo:ro
+      - ./server/art:/srv/art:ro
+      - ./config.json:/srv/config.json:ro
+      - ./dist/package:/srv/package:ro     # browser preview at /app/
+      - /etc/localtime:/etc/localtime:ro   # the night window uses this clock — without it, UTC
+    mem_limit: 128m
