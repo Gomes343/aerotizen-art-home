@@ -1,297 +1,152 @@
-> **This is a fork: AeroTizen + [Art Home](art-home/README.md).** Art Home replaces the launcher's
-> interface with a public-domain art gallery (frame mode, matted paintings), camera grid with live
-> video, detection pop-ups from Frigate, and energy saving — while AeroTizen's native Home service
-> stays untouched. Everything below is the original AeroTizen README by Hamza El Alaoui.
+# Art Home — a gallery home screen for Samsung Tizen TVs
+
+![Art Home on a Samsung TV: a Courbet landscape on a mat, clock, weather and the app row](art-home/docs/screenshots/home.jpg)
+
+**Art Home** turns a Samsung Tizen TV into a quiet picture frame: public-domain paintings fill the
+screen, a clock and the weather sit on top, and a small row of apps is one click away. When nobody
+touches the remote, the interface fades and only the artwork remains. It also shows your security
+cameras and pops up a card when someone walks past one.
+
+> Built on **[AeroTizen](https://github.com/helalaou/AeroTizen)** by Hamza El Alaoui, which makes the
+> remote's **Home** button (and power-on) open a custom launcher on Tizen TVs, with a backup and a
+> clean way back. Art Home replaces AeroTizen's interface with its own and keeps its Home service
+> unchanged. For AeroTizen itself — its launcher, debloat tools and DNS block lists — see the
+> [original repository](https://github.com/helalaou/AeroTizen).
+
+| Frame mode | Cameras | Detection pop-up |
+|---|---|---|
+| ![Only the artwork, matted, after 20 s without input](art-home/docs/screenshots/frame-mode.jpg) | ![Grid of camera tiles (demo images)](art-home/docs/screenshots/cameras.jpg) | ![A "Person · Front door" card over the artwork (demo image)](art-home/docs/screenshots/detection-popup.jpg) |
+
+*Screenshots are rendered at 1920×1080 from the demo mode: camera images are synthetic placeholders.
+Paintings: Gustave Courbet and Claude Monet, Cleveland Museum of Art, CC0.*
 
 ---
 
-# AeroTizen
+## What Art Home adds to AeroTizen
 
-[![CI](https://github.com/helalaou/AeroTizen/actions/workflows/ci.yml/badge.svg)](https://github.com/helalaou/AeroTizen/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Contributors](https://img.shields.io/github/contributors/helalaou/AeroTizen)](https://github.com/helalaou/AeroTizen/graphs/contributors)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+- **An art library that costs nothing.** `curate_art.py` builds a collection from the
+  [Cleveland Museum of Art Open Access](https://openaccess-api.clevelandart.org/) API — only works the
+  museum dedicates as **CC0** — picks landscape-friendly paintings, resizes them to 2560 px and
+  stores their average colour. The TV loads them from your own server, so a flaky internet
+  connection never leaves the wall blank. Every artwork is credited on screen (title, artist, year,
+  museum), even though CC0 doesn't require it.
+- **Matted, never cropped.** A painting that isn't close to 16:9 is shown on a mat in its own average
+  colour, like a framed print, instead of being cut to fill the screen.
+- **Frame mode.** After 20 seconds without input the clock, weather and apps fade out and the
+  artwork steps forward. The first key only wakes the screen; it never triggers an action.
+- **Cameras.** A grid with the latest frame of each camera from [Frigate](https://frigate.video)
+  (served from memory, ~30 ms each), refreshed every 1.5 s without flicker, and **live video full
+  screen** from [go2rtc](https://github.com/AlexxIT/go2rtc) with OK. Left/right switch cameras;
+  heavy H.265 main streams fall back to the light sub stream automatically.
+- **Detection pop-ups.** The server follows Frigate's events and the TV shows a card in the top-right
+  corner — photo, what was detected, which camera, when — with its own rules (labels, minimum score,
+  one card per camera per minute). The **red** button opens that camera live.
+- **Energy saving.** No input for 30 min → the artwork slowly dims; at night frame mode is darker;
+  optionally, after 2 h idle at night the TV asks the server to turn it off via Home Assistant (the
+  server checks the time window and decides — the TV only asks). On Mini-LED/Neo QLED and OLED
+  panels a darker picture really draws less power.
+- **Arrival mode.** The page only loads from scratch when the TV powers on, so it starts dim in
+  frame mode: whoever walks into the room sees the artwork and the camera pop-ups without the TV
+  lighting up fully. Any key brings full brightness.
+- **Weather** from any Home Assistant `weather.*` entity, no extra API key.
+- **English and Brazilian Portuguese** (`"locale": "en"` or `"pt-BR"`); adding a language is one
+  block in `launcher/i18n.js`.
+- **Changes without reinstalling.** Artworks, app row, cameras, alert and energy settings all come
+  from the server's `config.json`; the TV re-reads it every 10 minutes.
 
-A simple home screen for Samsung TVs, and a command-line tool to clean the TV up from your computer.
+What stays **AeroTizen's, unchanged** in the package: `service/` (the background Home service on the
+TV, port 47790) and `js/homewatch.js` (its client), plus the native Home assignment done by the
+AeroTizen CLI.
 
-Built with help from these contributors. [Join them](CONTRIBUTING.md): testing on your TV counts too.
+## How it fits together
 
-<!-- contributors:start -->
-<table>
-  <tr>
-    <td align="center"><a href="https://github.com/helalaou"><img src="https://github.com/helalaou.png?size=100" width="64" height="64" alt="helalaou"><br><sub>helalaou</sub></a></td>
-    <td align="center"><a href="https://github.com/metacurb"><img src="https://github.com/metacurb.png?size=100" width="64" height="64" alt="metacurb"><br><sub>metacurb</sub></a></td>
-    <td align="center"><a href="https://github.com/oflarcade"><img src="https://github.com/oflarcade.png?size=100" width="64" height="64" alt="oflarcade"><br><sub>oflarcade</sub></a></td>
-    <td align="center"><a href="https://github.com/motorgrid-ita"><img src="https://github.com/motorgrid-ita.png?size=100" width="64" height="64" alt="motorgrid-ita"><br><sub>motorgrid-ita</sub></a></td>
-    <td align="center"><a href="https://github.com/cvvspb"><img src="https://github.com/cvvspb.png?size=100" width="64" height="64" alt="cvvspb"><br><sub>cvvspb</sub></a></td>
-  </tr>
-</table>
-<!-- contributors:end -->
+```
+ phone / remote                     your server (any always-on Linux box, Docker or plain Python)
+      │                               server.py  ── artworks (art/), config.json, weather ← Home Assistant
+      ▼                                   ▲          detection alerts ← Frigate /api/events
+ Samsung TV ── Art Home package ──────────┘          turn-off request → Home Assistant
+   ├─ our screen: launcher/ (art, clock, apps, cameras, pop-ups, energy)
+   ├─ AeroTizen service (unchanged): brings Home back to Art Home
+   └─ camera images/video straight from Frigate and go2rtc
+```
 
-![AeroTizen home screen on a Samsung TV](docs/screenshots/home.png)
+## Requirements
 
-## Motivation
-
-The default home screen on recent Samsung TVs is mostly ads. The "Top Picks for You" row can't be
-removed, Samsung TV Plus starts playing on its own at boot, and the TV tracks what you watch unless
-you find the privacy settings to turn it off.
-
-On Android TV you would install a different launcher and remove the junk over ADB. Tizen makes
-this harder: developer access is limited, and the official developer tools are a large SDK that
-doesn't run natively on Apple Silicon.
-
-AeroTizen works around that. The launcher is a normal TV app that acts as the home screen: it opens
-when the TV turns on and comes back when you press Home. The CLI handles the setup (certificates,
-signing, installing) and shows which preinstalled apps can be removed. Tizen Studio and root
-access aren't needed.
-
-## Features
-
-On the TV:
-
-- Your apps as square cards using each app's own artwork from the TV. Pick **Big** (3 across) or
-  **Small** (5 across). Apps without artwork show their icon and name
-- **Home** and **All apps** tabs: keep favourites on Home and open any installed app from All apps
-- Opens at power-on and comes back when you press Home (see [Home options](#choose-how-home-works)
-  and [Limits](#limits))
-- Hold OK on a tile for **Move**, **Add to Home** or **Remove from Home**
-- Opens HbbTV apps such as BBC iPlayer
-- Inputs list every HDMI port and the name of what's plugged in. You can rename them, and hide
-  disconnected ports or the Live TV tile
-- 31 backgrounds, 16 of them animated, with a speed slider and preview (for example [Snowfall](docs/screenshots/theme-snowfall.png) and [Lava](docs/screenshots/theme-lava.png))
-- Time, date and weather in the top bar. Date and time follow the TV's language and 12/24-hour
-  setting, and °C or °F is picked from your region. You can change their formats or visibility
-  in Settings
-- Weather for a town you search for, or an approximate location from your internet address. The
-  place name can be hidden
-- Shows whether the TV is on Ethernet or Wi-Fi. Show or hide it in **Settings → Network indicator**
-- An optional Fireplace tile that plays a fireplace video
-- Works on The Frame: AeroTizen leaves Art Mode alone
-- Settings to choose which apps show up, open the Samsung app store, or go back to Samsung's home screen
-
-From your computer (`aerotizen`):
-
-- Finds the TV on your network
-- Connects to the TV's developer port directly in Python, on macOS, Linux or Windows
-- Creates the Samsung signing certificates for your TV (you sign in to your Samsung account once)
-- Signs and installs any `.wgt` app, including the launcher
-- Opens apps and checks that they actually came up on screen (`aerotizen launch`)
-- Restarts apps with Chrome DevTools for debugging (`aerotizen inspect launcher`)
-- Checks, backs up, applies and restores native Home settings from the PC, with no root
-  needed for normal setup ([Home options](#choose-how-home-works))
-- Lists installed apps, flags the bloat, and removes it if your firmware allows
-
-There's also a short [guide to the settings worth turning off](docs/settings.md) (ads, viewing
-data, autorun) and [DNS blocklists](dns/) if you run Pi-hole, AdGuard Home or NextDNS.
-
-| All apps | Hold OK on a tile |
-|---|---|
-| ![All apps](docs/screenshots/all-apps.png) | ![Tile menu](docs/screenshots/tile-menu.png) |
-
-| Settings | More settings |
-|---|---|
-| ![Settings](docs/screenshots/settings.png) | ![Weather, temperature and date settings](docs/screenshots/settings-more.png) |
-
-## Tested on
-
-| TV | Year | Firmware | Notes |
-|---|---|---|---|
-| Samsung 75" QLED Q7F (QE75Q7FAAUXXH) | 2025 | Tizen 9.0 | |
-| Samsung 65" Crystal UHD DU7200 (UN65DU7200FXZA) | 2024 | Tizen 9.0 | |
-| Samsung 65" The Frame LS03D (QE65LS03DAUXXU) | 2024 | Tizen 9.0 | |
-| Samsung 70" Crystal UHD CU7000 (UN70CU7000DXZA) | 2023 | Tizen 9.0 | |
-| Samsung 65" OLED S90C (QE65S90CATXZT) | 2023 | Tizen 7.0 / 9.0 | |
-| Samsung 75" QLED Q60B (QE75Q60BAUXXC) | 2022 | Tizen 6.5 | |
-| Samsung 55" OLED S95B (QE55S95BATXXC) | 2022 | Tizen 6.5 | Cold boot issue ([#47](../../issues/47)) |
-| Samsung 65" The Frame LS03A (QN65LS03AAFXZC) | 2021 | | Runs; Home doesn't return yet ([#65](../../issues/65)) |
-| Samsung 65" Crystal UHD AU7172 (UE65AU7172UXXH) | 2021 | Tizen 6.0 | Home doesn't return yet ([#65](../../issues/65)) |
-| Samsung 43" Crystal UHD AU8000 (UN43AU8000FXZC) | 2021 | | Runs; Home and power-on don't work yet ([#65](../../issues/65)) |
-
-Other Samsung TVs from 2020 on should work, but these are the only models tested so far. If you try it
-on yours, please [open a model report](../../issues/new?template=model_report.yml).
+- A Samsung TV with Tizen (tested: 2024 QN85D Neo QLED, **Tizen 9.0**, armv7) in **Developer Mode**.
+- The **AeroTizen CLI** (≥ 2.4.0) and a Samsung signing certificate — see AeroTizen's README.
+- An always-on machine on the same LAN for `server/server.py` (Python 3.10+, standard library only;
+  `curate_art.py` needs Pillow).
+- Optional: Home Assistant (weather, turning the TV off), Frigate + go2rtc (cameras and pop-ups).
 
 ## Setup
 
-You need a computer on the same network as the TV.
-
-1. Download the latest **CLI** release (`cli-v...`) from
-   [Releases](https://github.com/helalaou/AeroTizen/releases). Extract the archive for your
-   computer: Linux x64, Windows x64, or macOS Apple silicon / Intel. It contains
-   `aerotizen`, including Python and its dependencies.
-
-   Open a terminal in the extracted directory and check that it finds your TV.
-   On macOS or Linux:
-
-   ```bash
-   ./aerotizen discover
-   ```
-
-   In Windows PowerShell:
-
-   ```powershell
-   .\aerotizen.exe discover
-   ```
-
-   Run the remaining commands from this directory. The examples below use
-   `./aerotizen`; in Windows PowerShell, use `.\aerotizen.exe` instead.
-
-2. Turn on Developer Mode on the TV. Open **Apps**, type `12345` on the remote (or with the
-   on-screen number pad), switch Developer mode on, and set Host PC IP to your computer's IP.
-   On some newer firmware `12345` only works from **Apps → App Settings** (at the bottom of the
-   Apps tab). Check all four numbers of the IP before pressing OK: the first one doesn't always
-   change. Then unplug the TV for a minute. Turning it off with the remote isn't enough for the change to
-   apply. `./aerotizen status` should now show `developerMode=1`.
-
-3. Create the certificates. This opens Samsung's sign-in page in your browser:
-
-   ```bash
-   ./aerotizen certs
-   ```
-
-4. Install the launcher:
-
-   ```bash
-   ./aerotizen install launcher
-   ```
-
-   This downloads the latest stable **launcher** release, checks its checksum and
-   compatibility, signs it with your TV certificates, and installs it. No source checkout
-   or Node.js is needed. Keep your existing certificates for future app updates.
-
-   Run the same command to install a newer launcher. To select a version, use
-   `./aerotizen install launcher --version 2.2.0` (replace the number with a published
-   launcher version). CLI and launcher versions are independent; a launcher release
-   can require a newer CLI. Use `./aerotizen --version` to check your CLI version.
-
-   To install local development files or a downloaded package, use an explicit path:
-   `./aerotizen install ./dist/launcher` (after `npm ci && npm run build`) or
-   `./aerotizen install ./app.wgt`.
-
-Optional: add the extracted directory to your `PATH` to run `aerotizen` from any
-directory. You can then omit `./` (macOS/Linux) or `.\` (Windows) from the commands.
-
-If you already use Python 3.10 or newer, you can instead install the CLI with
-`pip install git+https://github.com/helalaou/AeroTizen` and run it as `aerotizen`.
-
-The launcher is now installed and uses the watcher by default. The gear icon opens settings.
-For the optional native Home setup, see [Home options](#choose-how-home-works).
-
-In **Settings → Weather**, choose **Show weather** or **Hide weather**. Hiding weather
-stops automatic location and forecast requests, while keeping your saved location and
-units. In **Date & time**, choose **No time** or **No date** to hide either item; selecting
-a format shows it again. **Network indicator** has its own **Show** and **Hide** controls.
-All three header items are shown by default. Choices apply at once and stay saved after
-a restart.
-
-For accurate weather, open **Settings → Weather** and search for your town or postcode.
-
-To look at or remove installed apps, run `./aerotizen apps` and `./aerotizen debloat`. To remove AeroTizen itself, run
-`./aerotizen uninstall launcher`.
-
-## Choose how Home works
-
-Both options run on the TV; your computer can be switched off after setup. Neither needs root.
-
-| Option | How it works |
-|---|---|
-| **Watcher (default)** | A background service detects a return to Samsung Home and reopens AeroTizen. Some apps cannot be detected (see [Limits](#limits)). |
-| **Native Home (opt-in)** | The TV routes Home from other apps to AeroTizen, with optional automatic startup. The watcher is disabled. |
-
-Native Home is experimental. Other models and firmware can now test if compatibility checks
-pass: a 32-bit ARM Tizen runtime, developer access, required native functions and complete
-settings reads. Apply also checks the installed launcher's eligibility and control service.
-Physical tests cover a 2024 Frame and a contributor's S90C, both on Tizen 9. The S90C passed
-Home-only, automatic startup, Home from YouTube/Prime and restore with the app installed.
-Passing preflight does not prove behaviour on another TV. See the
-[S90C report](docs/home-s90c-tv-20261027.json).
-
-Use matching updated builds of the CLI and signed launcher, then open the launcher. Start
-with Home only (replace `TV_IP` with your TV's address):
-
 ```sh
-./aerotizen --tv TV_IP home status
-./aerotizen --tv TV_IP home backup
-./aerotizen --tv TV_IP home apply --yes
+# 1. the server
+cp art-home/config.example.json art-home/config.json       # edit IPs, apps, cameras, locale
+cd art-home/server
+pip install pillow && python3 curate_art.py --target 60    # builds art/ (CC0 only)
+ART_HOME_CONFIG=../config.json HA_TOKEN=... python3 server.py
+#    (or: docker compose -f ../docker-compose.example.yml up -d)
+
+# 2. the TV package
+cd .. && ./build.sh config.json                             # → dist/package/ and dist/ArtHome.wgt
+aerotizen --tv TV_IP install dist/package                   # signs and installs
+
+# 3. make Home (and power-on) open Art Home — AeroTizen's native Home
+aerotizen --tv TV_IP home status
+aerotizen --tv TV_IP home backup                            # keep this folder: restore uses it
+aerotizen --tv TV_IP home apply --yes                       # Home only…
+#    …or --boot as well, so turning the TV on opens Art Home instead of live TV:
+#    aerotizen --tv TV_IP home restore --yes && aerotizen --tv TV_IP home apply --boot --yes
+#    then unplug the TV for 60 s (turning it off with the remote is not enough)
 ```
 
-Restart fully, then test Home from YouTube, Prime Video and Samsung Home. Run restore and
-check that Samsung Home returns. To test automatic startup separately, restore first, then
-run `./aerotizen --tv TV_IP home apply --boot --yes`. Restore before changing options.
-If compatibility checks fail, the command stops before changing settings or pausing the watcher.
-Native function availability does not prove write permission; failed writes attempt rollback.
-Keep the backup folder and inspect `home status` if a change fails. Status reports service
-query errors; a timeout does not mean the launcher was uninstalled.
-See the [controlled TV tests](docs/home-profile-isolation-tv-20261026.json).
+Preview the screen in a desktop browser at `http://SERVER:8895/app/index.html` (arrow keys, Enter,
+Esc). Set `"demo": true` to see placeholder cameras without a Frigate.
 
-The TV's original Home and startup values are saved once on the PC in
-`~/.config/aerotizen/backups/<TV identity>/`. Later backups preserve that original.
-Keep the **whole folder**, including its recovery records; you can copy it to another
-authorised PC. This is a backup of the settings changed by this feature, not the whole TV.
+**Undo everything:** `aerotizen --tv TV_IP home restore --yes`, unplug for 60 s, then uninstall the
+package. Your TV goes back to Samsung Home exactly as the backup recorded it.
 
-To revert, whether AeroTizen is still installed or has been uninstalled, run:
+## Lessons from one TV (read before debugging)
 
-```sh
-./aerotizen --tv TV_IP home restore --yes
-```
+These cost us an evening each; they may save you one.
 
-Restore uses your saved values, not hardcoded Samsung defaults. If AeroTizen is installed,
-it coordinates with the control service and re-enables the watcher. After uninstall, the
-CLI restores directly through the developer connection; no reinstall or root is needed.
-**After apply or restore, disconnect TV/One Connect power for 60 seconds, then restart.**
-Before `uninstall launcher`, restore native Home; uninstall stops while Home or startup still points to AeroTizen.
-Samsung Home remains available from AeroTizen Settings; Samsung's Art Mode sleep and
-Night Mode settings stay unchanged. See [setup and recovery](docs/home-pc-flow.md) for
-backup transfer and recovery steps. Test reports should include the CLI commit, TV model,
-firmware, and Home/restore/boot results; remove device IDs and private paths before sharing.
+- **Blocking `samsungqbe.com` in your DNS breaks app launches.** It is tempting to block it to hide
+  home-screen banners, but it also serves app authentication (`osb-auth-*`) and the app catalog
+  (`osb-apps-*`). With it blocked, YouTube and TizenTube froze on a grey screen. Unblock it and
+  unplug the TV.
+- **`vconftool set` over `sdb shell` does not persist on Tizen 9.** The shell accepts it and returns
+  0, but nothing changes (it can't even read values back). That is why AeroTizen's native helpers
+  exist — use them.
+- **AeroTizen's transport makes the TV connect *back* to your computer** on a random port. A host
+  firewall (ufw's default `deny incoming`) silently drops that connection and the CLI reports
+  "SDK query transport failed". Allow the TV's IP while you run `home status/backup/apply/restore`,
+  then remove the rule.
+- **One `sdb` client at a time.** Mixing the official `sdb`, Apps2Samsung and the AeroTizen CLI
+  confused the TV; after a failed session it also refused new handshakes for a few minutes.
+- **Some apps never report themselves as visible** (YouTube/TizenTube, Prime Video, Spotify), so a
+  watcher alone can't tell that Home was pressed inside them. AeroTizen's native Home solves it.
+- **Run the server in your timezone.** The night window for turning the TV off uses the server's
+  clock; a `python:slim` container is UTC unless you mount `/etc/localtime`. Test the turn-off
+  endpoint only with `dry_run=1`.
 
-## Limits
+## Limitations
 
-Samsung doesn't support any of this officially, so some parts are workarounds:
+- Tizen web apps can't draw over other apps: pop-ups appear only while Art Home is on screen (home,
+  frame mode, cameras). Inside YouTube or Netflix, rely on your phone notifications.
+- There is no public API for the TV's own presence/motion sensors, so "arrival" means "the TV was
+  just powered on" — by you, by the TV's own motion setting if your model has one, or by Home
+  Assistant reacting to a presence sensor.
+- With `--boot`, some TVs show a black screen for a while before the launcher appears (AeroTizen
+  documents ~30 s on a Frame).
+- Tested on one TV. Other models and firmware may differ — please report what you find.
 
-- At power-on, Samsung's **Autorun Samsung TV Plus** and **Autorun Last App** settings can open
-  something before AeroTizen does. Turn them off (see the [settings guide](docs/settings.md)).
-- **Watcher:** Pressing Home brings AeroTizen back after a second or two. That works from Samsung's home
-  screen and inside Netflix, but not inside YouTube, Prime Video, Stremio, Spotify or HbbTV apps. Those apps
-  don't report whether they're on screen, so there's no way to tell. Back still works everywhere.
-  After Home in one of them, AeroTizen comes back once that app closes or you open an app that does
-  report itself, such as Netflix. You can also open AeroTizen from Samsung's app row.
-- **Live TV and YouTube** open in Samsung's own player, so the remote works normally there. The
-  watcher pauses while they're open, so with the watcher, Home from Live TV or YouTube leaves you on
-  Samsung Home; use Back, or open AeroTizen from the app row. Native Home returns from both.
-- **Watcher on The Frame:** AeroTizen checks Art Mode before every return and stays out of the way while it's
-  on. If the TV doesn't report its power or Art Mode state, AeroTizen waits rather than guess.
-  Tested on a 2024 Frame (QE65LS03DAUXXU, Tizen 9.0); starting from a cold boot isn't verified yet.
-- **Native Home (experimental):** Home with boot enabled passed YouTube, Prime Video and Samsung Home
-  return on the recorded Frame with Samsung's original Art target. Samsung Home checks allowed a
-  10-second wait.
-  Startup still shows a black screen for about 30 seconds. Home from Art Mode opens Samsung's Art
-  page; a second Home press opens AeroTizen.
-  Restore after uninstall has local test coverage; its TV test is pending.
-- On Tizen 6 and newer, store and preinstalled apps can't be removed over the developer
-  connection. You can delete them on the TV under Apps → Settings. Samsung's system apps (TV Plus,
-  Gaming Hub) can only be disabled.
-- TV apps are drawn at 1920×1080 and upscaled, even on a 4K panel. Only video plays at full 4K.
-- Samsung's own menus and screens can't be changed. The [settings guide](docs/settings.md) and
-  [DNS lists](dns/) cover what you can switch off.
+## Credits and license
 
-## Contributing
-
-The goal is a home screen that works well on every Samsung TV and gets as far as possible from the
-ads and clutter Tizen ships with. Help is welcome, especially testing on other models: a model
-report saying what works and what doesn't is the most useful contribution. Pull requests for
-fixes, new themes or features are welcome too. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Credits
-
-- [LTvLauncher](https://github.com/leanbitlab-org/LtvLauncher), which the layout is based on
-- [Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) and [tizen-sdb](https://github.com/PatrickSt1991/tizen-sdb), for how the developer connection, certificates and signing work
-- [samsung-tizen-tv-debloat](https://github.com/ardazeytin/samsung-tizen-tv-debloat), for which packages are safe to remove
-- App artwork is read from Samsung's cache on each TV; none is bundled or downloaded. Fallback logos
-  are from [Simple Icons](https://simpleicons.org). Artwork and trademarks belong to their owners
-- Weather and location search from [Open-Meteo](https://open-meteo.com), automatic location from [ipapi](https://ipapi.co)
-
-This project isn't affiliated with Samsung. Use it at your own risk.
-
-## License
-
-[MIT](LICENSE)
+- **[AeroTizen](https://github.com/helalaou/AeroTizen)** © 2026 Hamza El Alaoui, MIT — the native
+  Home assignment, the TV-side service and `homewatch.js`, used unchanged. Thank you.
+- Artworks: **Cleveland Museum of Art Open Access**, CC0. Downloaded by your own server; not
+  redistributed in this repository.
+- Cameras: [Frigate](https://frigate.video) and [go2rtc](https://github.com/AlexxIT/go2rtc).
+- Art Home code: MIT, like AeroTizen. Not affiliated with Samsung. Developer Mode and native Home
+  changes are at your own risk; keep AeroTizen's backup folder.
