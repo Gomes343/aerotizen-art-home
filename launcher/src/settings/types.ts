@@ -11,7 +11,7 @@ export interface WeatherLocation {
 }
 export interface SettingsValues {
   home: string[]; cardSize: CardSize; background: string; speed: number;
-  showWeather: boolean; showTime: boolean; showNetwork: boolean; tempUnit: TemperatureUnit;
+  weatherPhoto: boolean; showWeather: boolean; showTime: boolean; showNetwork: boolean; tempUnit: TemperatureUnit;
   weatherLocation: WeatherLocation | null; weatherShowLocation: boolean;
   dateFormat: DateFormat | 'auto' | 'weekday' | 'dmy' | 'mdy'; timeFormat: TimeFormat;
   continueWatching: boolean; continueWatchingApps: string[];
@@ -76,6 +76,7 @@ export interface SettingsServices {
   showPreviewMessage(): void; hidePreviewMessage(): void;
 }
 export interface SettingsActions {
+  setWeatherPhoto(enabled: boolean): void;
   setContinueWatching(enabled: boolean): void; toggleContinueApp(id: string): void;
   setBackground(background: string): void; setWeatherVisible(visible: boolean): void;
   setLocationVisible(visible: boolean): void; setTempUnit(unit: TemperatureUnit): void;

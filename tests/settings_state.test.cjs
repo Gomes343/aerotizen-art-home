@@ -10,7 +10,7 @@ const harness = () => {
   const listeners = new Set();
   let saves = 0;
   const defaults = { background: 'black', home: ['one'], inputNames: {}, speed: 1,
-    cardSize: 'big', showWeather: true, showTime: true, showNetwork: true, tempUnit: 'C',
+    cardSize: 'big', weatherPhoto: false, showWeather: true, showTime: true, showNetwork: true, tempUnit: 'C',
     weatherLocation: null, weatherShowLocation: true, dateFormat: 'short', timeFormat: '24',
     continueWatching: false, continueWatchingApps: [],
     showLiveTv: true, hideDisconnectedHdmi: false };
@@ -125,6 +125,15 @@ test('key-router bridge delegates to current handlers and releases them on clean
   assert.equal(h.view.getSnapshot().openedAt, 1001, 'a new opening captures a fresh preview timestamp');
 });
 
+test('weather wallpaper action preserves background and speed and refreshes the shared consumers', () => {
+  const h = harness();
+  h.actions.setWeatherPhoto(true);
+  assert.equal(h.source.weatherPhoto, true);
+  assert.equal(h.source.background, 'black'); assert.equal(h.source.speed, 1);
+  assert.deepEqual(h.calls, [['applyWeatherVisibility'], ['applyBackground']]);
+  h.actions.setWeatherPhoto(false);
+  assert.equal(h.source.weatherPhoto, false); assert.equal(h.saves, 2);
+});
 
 test('Continue Watching selection is persisted with immutable snapshots', () => {
   const h = harness();

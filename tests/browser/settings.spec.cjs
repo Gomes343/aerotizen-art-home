@@ -221,3 +221,54 @@ test('late TV inventory and hot-plug updates reach Settings without a preference
   expect(await page.evaluate(() => document.querySelector('[data-key="name:HDMI 1"] input') === window.originalInput)).toBe(true);
   expect(await page.evaluate(() => localStorage.getItem(AeroTizen.config.STORAGE_KEY))).toBe(saved);
 });
+
+test('weather wallpapers are opt-in, use hidden-header weather, persist and restore the selected background', async ({ page }) => {
+  const images = [];
+  page.on('request', request => { if (request.url().includes('/assets/weather/') && request.url().endsWith('.jpg')) images.push(request.url()); });
+  await page.route('https://api.open-meteo.com/**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+    current: { temperature_2m: 20, weather_code: 0, is_day: 1 }
+  }) }));
+  await openSettings(page);
+  const control = page.getByRole('group', { name: 'Dynamic weather wallpapers', exact: true });
+  await expect(control.getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(images).toEqual([]);
+  await page.evaluate(() => {
+    Object.assign(AeroTizen.settings, { background: 'snow', speed: 1.3, showWeather: false,
+      weatherLocation: { name: 'Fixture city', latitude: 1, longitude: 2 } });
+    AeroTizen.settings.save(); AeroTizen.applyBackground(); Weather.updateVisibility();
+  });
+  await control.getByRole('button', { name: 'Automatic (weather)', exact: true }).click();
+  await expect(page.locator('#weather-photo')).toBeVisible();
+  await expect(page.locator('#weather')).toBeHidden();
+  await expect(page.locator('#bg')).toBeHidden();
+  expect(images).toHaveLength(1); expect(images[0]).toContain('/sun.jpg');
+  await page.evaluate(() => Backgrounds.setSpeed(1.3));
+  await expect(page.locator('#bg')).toBeHidden();
+  expect(await page.locator('#bg canvas').count()).toBe(0);
+  await page.reload();
+  await page.waitForFunction(() => AeroTizen.settings.weatherPhoto === true);
+  await expect(page.locator('#weather-photo')).toBeVisible();
+  await page.evaluate(() => AeroTizen.settingsUi.open());
+  await control.getByRole('button', { name: 'Off', exact: true }).click();
+  await expect(page.locator('#weather-photo')).toBeHidden();
+  await expect(page.locator('#bg')).toBeVisible();
+  expect(await page.evaluate(() => ({ background: AeroTizen.settings.background, speed: AeroTizen.settings.speed })))
+    .toEqual({ background: 'snow', speed: 1.3 });
+  await expect(page.locator('#bg canvas')).toHaveCount(1);
+});
+
+test('turning weather wallpaper off while its image is pending cannot hide the fallback', async ({ page }) => {
+  let release;
+  await page.route('**/assets/weather/sun.jpg', route => new Promise(resolve => {
+    release = async () => { await route.continue(); resolve(); };
+  }));
+  await openSettings(page);
+  await page.evaluate(() => { Weather.currentReading = () => ({ code: 0, day: 1, at: Date.now(), solar: [] }); });
+  const control = page.getByRole('group', { name: 'Dynamic weather wallpapers', exact: true });
+  await control.getByRole('button', { name: 'Automatic (weather)', exact: true }).click();
+  await expect.poll(() => typeof release).toBe('function');
+  await control.getByRole('button', { name: 'Off', exact: true }).click();
+  await release();
+  await expect(page.locator('#weather-photo')).toBeHidden();
+  await expect(page.locator('#bg')).toBeVisible();
+});

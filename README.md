@@ -52,6 +52,7 @@ On the TV:
 - Inputs list every HDMI port and the name of what's plugged in. You can rename them, and hide
   disconnected ports or the Live TV tile
 - 31 backgrounds, 16 of them animated, with a speed slider and preview (for example [Snowfall](docs/screenshots/theme-snowfall.png) and [Lava](docs/screenshots/theme-lava.png))
+- Optional [dynamic weather wallpapers](docs/dynamic-weather-wallpapers.md): nine local AI-generated scenes follow weather, day/night and sunset. Off by default; [provenance and redistribution](launcher/assets/weather/CREDITS.md) are documented.
 - Time, date and weather in the top bar. Date and time follow the TV's language and 12/24-hour
   setting, and °C or °F is picked from your region. You can change their formats or visibility
   in Settings

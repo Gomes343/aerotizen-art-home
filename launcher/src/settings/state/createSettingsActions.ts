@@ -11,6 +11,10 @@ export const createSettingsActions = (
     settings.refresh();
   });
   return {
+    setWeatherPhoto: weatherPhoto => commit({ weatherPhoto }, () => {
+      services.applyWeatherVisibility();
+      services.applyBackground();
+    }),
     setContinueWatching: continueWatching => commit({ continueWatching }),
     toggleContinueApp(id) {
       const selected = settings.getSnapshot().continueWatchingApps;
