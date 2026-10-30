@@ -15,11 +15,12 @@ export interface SettingsValues {
   weatherLocation: WeatherLocation | null; weatherShowLocation: boolean;
   dateFormat: DateFormat | 'auto' | 'weekday' | 'dmy' | 'mdy'; timeFormat: TimeFormat;
   continueWatching: boolean; continueWatchingApps: string[];
-  showLiveTv: boolean; hideDisconnectedHdmi: boolean; inputNames: Record<string, string>;
+  showLiveTv: boolean; hideDisconnectedHdmi: boolean; hdmiKeepVisible: Record<string, boolean>; inputNames: Record<string, string>;
 }
-export type SettingsSnapshot = Readonly<Omit<SettingsValues, 'home' | 'inputNames' | 'weatherLocation' | 'continueWatchingApps'>> & {
+export type SettingsSnapshot = Readonly<Omit<SettingsValues, 'home' | 'inputNames' | 'weatherLocation' | 'continueWatchingApps' | 'hdmiKeepVisible'>> & {
   readonly home: readonly string[];
   readonly continueWatchingApps: readonly string[];
+  readonly hdmiKeepVisible: Readonly<Record<string, boolean>>;
   readonly inputNames: Readonly<Record<string, string>>;
   readonly weatherLocation: Readonly<WeatherLocation> | null;
 };
@@ -86,7 +87,7 @@ export interface SettingsActions {
   setClockLayout(layout: SettingsValues['clockLayout']): void; setClockStyle(style: SettingsValues['aeroClockStyle']): void;
   setDateFormat(format: DateFormat): void; setNetworkVisible(visible: boolean): void;
   setLiveTvVisible(visible: boolean): void; setCardSize(size: CardSize): void; setHomeCardMode(mode: SettingsValues['homeCardMode']): void; setHomeCardColumns(columns: number | null): void;
-  setHdmiVisibility(hide: boolean): void; setTimeFormat(format: TimeFormat | 'none'): void;
+  setHdmiVisibility(hide: boolean): void; setHdmiKeepVisible(port: string, keep: boolean): void; setTimeFormat(format: TimeFormat | 'none'): void;
   setLocation(location: WeatherLocation | null): void; setSpeed(direction: number): void;
   saveInputName(port: string, value: string): void; toggleApp(id: string): void;
   openStore(): void; useSamsungHome(): void; preview(): void;
