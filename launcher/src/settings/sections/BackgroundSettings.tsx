@@ -1,4 +1,5 @@
 import { flushSync } from 'preact/compat';
+import { Choice } from '../components/Choice';
 import { Pill } from '../components/Pill';
 import { RemoteControl } from '../components/RemoteControl';
 import { useStore } from '../../shared/hooks/useStore';
@@ -29,6 +30,10 @@ export const BackgroundSettings = ({ settings, actions, config, backgrounds: lis
 
   return (
     <>
+      <h3>Dynamic weather wallpapers</h3>
+      <Choice id="weather-photo-choice" value={settings.weatherPhoto} label="Dynamic weather wallpapers"
+        options={[[false, 'Off'], [true, 'Automatic (weather)']]} onSelect={actions.setWeatherPhoto} />
+      <p class="hint">Nine AI-generated scenes follow the weather and time of day. Off restores your selected background.</p>
       <h3>Animated backgrounds</h3>
       <div id="bg-anim" class="swatches">{swatches(true)}</div>
       <div id="speed-row" class="speed-row" hidden={!animated}>

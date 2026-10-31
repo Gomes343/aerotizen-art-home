@@ -6,6 +6,7 @@
   var KEY = A.config.KEY;
 
   A.applyBackground = function () {
+    if (A.photoWeather && A.photoWeather.update()) { return; }
     window.Backgrounds.setSpeed(A.settings.speed);
     window.Backgrounds.apply(A.settings.background);
   };
@@ -46,11 +47,13 @@
   startup.mark('settings-loaded');
   A.applyBackground();
   A.clock.start();
+  if (A.photoWeather) { A.photoWeather.start(); }
   A.apps.restore();
   A.homeScreen.render();
   startup.mark('home-rendered');
   function discover() {
     startup.captureLaunch();
+    A.continueWatching.start();
     A.network.start();
     window.Weather.start(function () { return A.settings; });
     A.inputs.load();

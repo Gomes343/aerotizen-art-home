@@ -6,7 +6,7 @@
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
                 'September', 'October', 'November', 'December'];
 
-  var timeWidths = {};
+  var timeWidths = {}, listeners = [];
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
 
@@ -141,6 +141,21 @@
     return timeText(d, id, timeFormatter(id));
   }
 
+  // Custom layouts need fields, not assumptions about locale separators or
+  // whether a day period precedes the hour. Reuse the existing time formatter.
+  function formatTimeParts(d, id) {
+    var formatter = timeFormatter(id), result = { hour: '', minute: '', dayPeriod: '' };
+    try {
+      if (!formatter || typeof formatter.formatToParts !== 'function') { return null; }
+      formatter.formatToParts(d).forEach(function (part) {
+        if (part.type === 'hour' || part.type === 'minute' || part.type === 'dayPeriod') {
+          result[part.type] = part.value;
+        }
+      });
+      return result.hour && result.minute ? result : null;
+    } catch (e) { return null; }  // Older TVs retain the formatted-string fallback.
+  }
+
   function sizeTime(el, id) {
     if (!el.style || typeof window.getComputedStyle !== 'function') { return; }
     var style = window.getComputedStyle(el);
@@ -172,14 +187,20 @@
     timeEl.setAttribute('data-format', A.settings.timeFormat === '24' ? '24' : '12');
     timeEl.textContent = formatTime(d, A.settings.timeFormat);
     sizeTime(timeEl, A.settings.timeFormat);
+    listeners.slice().forEach(function (listener) { listener(); });
   }
 
   A.clock = {
+    subscribe: function (listener) {
+      listeners.push(listener);
+      return function () { var index = listeners.indexOf(listener); if (index >= 0) { listeners.splice(index, 1); } };
+    },
     DATE_FORMATS: DATE_FORMATS,
     dateStyle: dateStyle,
     defaultTimeFormat: defaultTimeFormat,
     formatDate: formatDate,
     formatTime: formatTime,
+    formatTimeParts: formatTimeParts,
     tick: tick,
     start: function () { tick(); setInterval(tick, 10000); }
   };

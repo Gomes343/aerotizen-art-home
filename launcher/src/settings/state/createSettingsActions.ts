@@ -11,15 +11,29 @@ export const createSettingsActions = (
     settings.refresh();
   });
   return {
+    setWeatherPhoto: weatherPhoto => commit({ weatherPhoto }, () => {
+      services.applyWeatherVisibility();
+      services.applyBackground();
+    }),
+    setContinueWatching: continueWatching => commit({ continueWatching }),
+    toggleContinueApp(id) {
+      const selected = settings.getSnapshot().continueWatchingApps;
+      commit({ continueWatchingApps: selected.includes(id) ? selected.filter(app => app !== id) : [...selected, id] });
+    },
     setBackground: background => commit({ background }, services.applyBackground),
     setWeatherVisible: showWeather => commit({ showWeather }, services.applyWeatherVisibility),
     setLocationVisible: weatherShowLocation => commit({ weatherShowLocation }, services.applyLocationVisibility),
     setTempUnit: tempUnit => commit({ tempUnit }, services.refreshWeather),
+    setClockLayout: clockLayout => commit({ clockLayout }, services.applyClock),
+    setClockStyle: aeroClockStyle => commit({ aeroClockStyle }, services.applyClock),
     setDateFormat: dateFormat => commit({ dateFormat }, services.applyClock),
     setNetworkVisible: showNetwork => commit({ showNetwork }, services.applyNetworkVisibility),
     setLiveTvVisible: showLiveTv => commit({ showLiveTv }, services.applyInputs),
     setCardSize: cardSize => commit({ cardSize }, services.applyCardSize),
+    setHomeCardMode: homeCardMode => commit({ homeCardMode }, services.applyCardSize),
+    setHomeCardColumns: homeCardColumns => commit({ homeCardColumns }, services.applyCardSize),
     setHdmiVisibility: hideDisconnectedHdmi => commit({ hideDisconnectedHdmi }, services.applyInputs),
+    setHdmiKeepVisible: (port, keep) => commit({ hdmiKeepVisible: { ...settings.getSnapshot().hdmiKeepVisible, [port]: keep } }, services.applyInputs),
     setTimeFormat: format => commit(format === 'none' ? { showTime: false } : { showTime: true, timeFormat: format }, services.applyClock),
     setLocation: weatherLocation => commit({ weatherLocation }, services.refreshWeather),
     setSpeed(direction) {

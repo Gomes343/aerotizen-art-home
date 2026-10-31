@@ -9,6 +9,14 @@ export const DisplaySettings = ({ settings, actions, clock, openedAt }: Props) =
   const dateStyle = clock.dateStyle(settings.dateFormat);
   return (
     <>
+      <h3>Clock layout</h3>
+      <Choice id="clock-layouts" label="Clock layout" value={settings.clockLayout}
+        options={[['classic', 'Compact clock'], ['custom', 'Custom clock']]} onSelect={actions.setClockLayout} />
+      <div hidden={settings.clockLayout !== 'custom'}>
+        <h3>Clock style</h3>
+        <Choice id="clock-styles" label="Clock style" value={settings.aeroClockStyle}
+          options={[['vertical', 'Large Vertical'], ['horizontal', 'Horizontal'], ['minimal', 'Thin'], ['bold', 'Bold']]} onSelect={actions.setClockStyle} />
+      </div>
       <h3>Date &amp; time</h3>
       <div id="time-formats" class="units">
         {(['12', '24'] as const).map(format => (
@@ -33,8 +41,13 @@ export const DisplaySettings = ({ settings, actions, clock, openedAt }: Props) =
       <Choice id="live-tv-visibility" label="Live TV visibility" value={settings.showLiveTv}
         options={[[true, 'Show'], [false, 'Hide']]} onSelect={actions.setLiveTvVisible} />
       <h3>App cards</h3>
-      <Choice id="card-sizes" label="App card size" value={settings.cardSize || 'big'}
-        options={[['big', 'Big'], ['small', 'Small']]} onSelect={actions.setCardSize} />
+      <Choice id="home-card-mode" label="Home tile layout" value={settings.homeCardMode}
+        options={[['square', 'Square'], ['rectangle', 'Rectangle']]} onSelect={actions.setHomeCardMode} />
+      <Choice id="home-card-columns" label="Apps per row" value={String(settings.homeCardColumns || 'auto')}
+        options={[['auto', 'Follow card size'], ['3', '3'], ['4', '4'], ['5', '5']]}
+        onSelect={value => actions.setHomeCardColumns(value === 'auto' ? null : Number(value))} />
+      {!settings.homeCardColumns ? <Choice id="card-sizes" label="App card size" value={settings.cardSize || 'big'}
+        options={[["big", "Big"], ["small", "Small"]]} onSelect={actions.setCardSize} /> : null}
     </>
   );
 };

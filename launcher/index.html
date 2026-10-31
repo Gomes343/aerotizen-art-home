@@ -7,10 +7,14 @@
   <script src="js/startup.js"></script>
   <link rel="icon" href="icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/clock-layouts.css">
+  <link rel="stylesheet" href="css/card-modes.css">
   <link rel="stylesheet" href="css/tile-actions.css">
+  <link rel="stylesheet" href="css/photo-weather.css">
 </head>
-<body>
+<body class="s90c-clock-classic">
   <div id="bg" class="bg"></div>
+  <div id="weather-photo" class="weather-photo" aria-hidden="true" hidden></div>
   <!-- Layout inspired by LTvLauncher (github.com/leanbitlab-org/LtvLauncher); no code shared. -->
   <header class="topbar">
     <div class="topbar-left">
@@ -28,12 +32,17 @@
       <span id="date" class="date"></span>
       <span id="time" class="time"></span>
     </div>
+    <div id="custom-clock-root"></div>
   </header>
 
   <div class="content-viewport">
     <main id="rows">
       <div id="grid" class="app-grid" aria-label="Home apps"></div>
       <p id="apps-empty" class="apps-empty" hidden>No apps found.</p>
+      <section id="continue-section" class="row-wrap" hidden>
+        <h2>Continue Watching</h2>
+        <div class="continue-viewport"><div id="continue-items" class="row" aria-label="Continue Watching"></div></div>
+      </section>
       <section id="inputs-section" class="row-wrap inputs-wrap" hidden>
         <h2>Inputs</h2>
         <div id="inputs" class="row small"></div>
@@ -70,6 +79,9 @@
     <h3>HDMI ports</h3>
     <p class="hint">Choose whether to show HDMI ports that the TV reports as disconnected.</p>
     <div id="input-visibility" class="units"></div>
+    <h3 data-i18n="HDMI always visible">HDMI always visible</h3>
+    <p class="hint" data-i18n="Optionally keep an unidentified HDMI port visible while disconnected.">Optionally keep an unidentified HDMI port visible while disconnected.</p>
+    <div id="hdmi-force-visibility" class="units" role="group" aria-label="HDMI always visible"></div>
     <h3>Input names</h3>
     <div id="input-names" class="units"></div>
     <h3>Show in app menu</h3>
@@ -102,8 +114,11 @@
   <script src="js/native-navigation.js"></script>
   <script src="js/apps.js"></script>
   <script src="js/inputs.js"></script>
+  <script src="js/continue-watching.js"></script>
+  <script src="js/continue-row.js"></script>
   <script src="js/home-screen.js"></script>
   <script src="js/settings-ui.js"></script>
+  <script src="js/photo-weather.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

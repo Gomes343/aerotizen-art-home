@@ -267,3 +267,30 @@ test('older Intl keeps a stable fitting clock without repeated layout measuremen
   assert.equal(elements.time.style.width, width);
   assert.equal(measurements, measured, 'normal clock updates reuse the reserved width');
 });
+
+test('clock tick listeners are notified once and can unsubscribe', () => {
+  const { A } = runtime(); let ticks = 0;
+  const unsubscribe = A.clock.subscribe(() => ticks++);
+  A.clock.tick(); assert.equal(ticks, 1);
+  unsubscribe(); A.clock.tick(); assert.equal(ticks, 1);
+});
+
+test('custom clock fields preserve locale digits, separators and leading day periods', () => {
+  for (const [locale, format, hour, minute, prefix] of [
+    ['fi-FI','24','17','04',false], ['ko-KR','12','5','04',true], ['ar-EG-u-nu-arab','12','٥','٠٤',false]
+  ]) {
+    const { A } = runtime({locale});
+    const fields = A.clock.formatTimeParts(sample, format);
+    assert.equal(fields.hour, hour);
+    assert.equal(fields.minute, minute);
+    if (format === '12') { assert.ok(fields.dayPeriod); }
+    else { assert.equal(fields.dayPeriod, ''); }
+    // ICU editions may spell a period differently; preserve what the shared
+    // formatter actually supplied, including its locale-specific ordering.
+    const compact = A.clock.formatTime(sample, format).replace(/[\s.:：\u200e\u200f\u061c]/g, '');
+    assert.equal(compact, prefix ? fields.dayPeriod + hour + minute : hour + minute + fields.dayPeriod);
+  }
+  const { A } = runtime({intl:{}});
+  assert.equal(A.clock.formatTimeParts(sample,'24'), null);
+  assert.equal(A.clock.formatTime(sample,'24'), '17:04');
+});
