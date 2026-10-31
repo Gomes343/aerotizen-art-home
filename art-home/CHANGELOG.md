@@ -5,6 +5,12 @@ Art Home (`art-home/`).
 
 ## Unreleased
 
+- **Your own photos from Google Photos, between the artworks** (optional, per TV). Pick them on your phone
+  at `/photos` (Google's Photos Picker API); the server downloads them once into its data folder and the
+  TV alternates artwork and photo (`photos.every`), matted in the photo's own colour and captioned with
+  its date. `photos.py login` signs in once (Desktop-app OAuth client, loopback, PKCE). Standard library
+  only, like the rest of the server.
+- The Docker example now mounts the whole `server/` folder, plus a writable `data/` for the photos.
 - **Several TVs on one server.** List them in `tvs` (each with its `ip`); a TV may set its own `apps`,
   `energy` and `art`. A turn-off request now turns off **the TV that asked**, and only a TV listed in
   the config can ask: before, a second TV (or a desktop preview left open at night) would turn off the

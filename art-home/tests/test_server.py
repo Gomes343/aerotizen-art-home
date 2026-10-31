@@ -59,6 +59,7 @@ class TempDirs(unittest.TestCase):
             mock.patch.object(server, "ART", self.tmp / "art"),
             mock.patch.object(server, "APP", self.tmp / "package"),
             mock.patch.object(server, "log", lambda msg: None),
+            mock.patch.object(server.photos, "DATA", self.tmp / "data"),
         ]
         for p in patches:
             p.start()
@@ -349,9 +350,9 @@ class HttpTest(TempDirs):
         self.addCleanup(self.httpd.server_close)
         self.addCleanup(self.httpd.shutdown)
 
-    def request(self, method, path):
+    def request(self, method, path, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
-        c.request(method, path)
+        c.request(method, path, headers=headers or {})
         r = c.getresponse()
         body = r.read()
         c.close()
@@ -408,6 +409,81 @@ class HttpTest(TempDirs):
         with mock.patch.object(server, "turn_off", side_effect=OSError):
             r, body = self.request("POST", "/api/turn-off?idle_min=130")
         self.assertEqual((r.status, json.loads(body)["reason"]), (502, "OSError"))
+
+    # ---- photos
+    def photo(self, pid="P1", name="abc.jpg"):
+        d = self.tmp / "data" / "photos"
+        (d / "thumbs").mkdir(parents=True, exist_ok=True)
+        (d / name).write_bytes(b"photo")
+        (d / "thumbs" / name).write_bytes(b"thumb")
+        cat = json.loads((d / "catalog.json").read_text()) if (d / "catalog.json").exists() else []
+        cat.append(
+            {"id": pid, "file": name, "date": "2025-03-12", "width": 3, "height": 4, "added": "2026-10-31"}
+        )
+        (d / "catalog.json").write_text(json.dumps(cat))
+
+    def test_photos_reach_only_a_tv_that_turned_them_on(self):
+        self.photo()
+        self.write_config(
+            {
+                "demo": True,
+                "photos": {"enabled": False},
+                "tvs": [{"ip": "127.0.0.1", "photos": {"enabled": True, "every": 3}}],
+            }
+        )
+        d = json.loads(self.request("GET", "/api/home")[1])
+        self.assertEqual(
+            ([p["id"] for p in d["photos"]], d["photos_every"], d["photos_date"]), (["P1"], 3, True)
+        )
+        self.write_config(
+            {
+                "demo": True,
+                "photos": {"enabled": True},
+                "tvs": [{"ip": "10.9.9.9"}, {"ip": "127.0.0.1", "photos": {"enabled": False}}],
+            }
+        )
+        d = json.loads(self.request("GET", "/api/home")[1])
+        self.assertEqual((d["photos"], d["photos_every"]), ([], 0))
+
+    def test_photos_are_off_by_default_and_a_bad_ratio_turns_them_off(self):
+        self.photo()
+        self.assertEqual(json.loads(self.request("GET", "/api/home")[1])["photos_every"], 0)
+        self.assertEqual(server.photo_every({"enabled": True}), 2)
+        self.assertEqual(server.photo_every({"enabled": True, "every": 0}), 1)
+        self.assertEqual(server.photo_every({"enabled": True, "every": "lots"}), 0)
+
+    def test_photo_files_are_served_but_not_the_catalog_or_anything_outside(self):
+        self.photo()
+        self.assertEqual(self.request("GET", "/photos/abc.jpg")[1], b"photo")
+        self.assertEqual(self.request("GET", "/photos/thumbs/abc.jpg")[1], b"thumb")
+        for path in (
+            "/photos/catalog.json",
+            "/photos/../google-token.json",
+            "/photos/%2e%2e/x.jpg",
+            "/photos/no.jpg",
+        ):
+            self.assertEqual(self.request("GET", path)[0].status, 404, path)
+
+    def test_the_phone_page_and_its_state(self):
+        r, body = self.request("GET", "/photos")
+        self.assertEqual(r.status, 200)
+        self.assertIn(b"/api/photos/pick", body)
+        self.photo()
+        s = json.loads(self.request("GET", "/api/photos")[1])
+        self.assertEqual((s["client"], s["signed_in"], s["count"], s["locale"]), (False, False, 1, "en"))
+        self.assertNotIn("session", s["job"])
+
+    def test_photo_actions_need_the_header(self):
+        self.photo()
+        r, _ = self.request("POST", "/api/photos/delete?id=P1")
+        self.assertEqual(r.status, 403)
+        r, body = self.request("POST", "/api/photos/delete?id=P1", {"X-Art-Home": "1"})
+        self.assertEqual((r.status, json.loads(body)), (200, {"deleted": True}))
+
+    def test_picking_without_signing_in_says_how(self):
+        r, body = self.request("POST", "/api/photos/pick", {"X-Art-Home": "1"})
+        self.assertEqual(r.status, 409)
+        self.assertIn("google-client.json", json.loads(body)["error"])
 
     def test_unknown_paths_are_404(self):
         self.assertEqual(self.request("GET", "/nope")[0].status, 404)

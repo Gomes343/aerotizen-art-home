@@ -11,6 +11,7 @@
       noSignal: 'no signal', loading: 'loading…', lowQuality: 'reduced quality', noVideo: 'no video right now',
       redOpensLive: '● red opens live', couldNotOpen: 'Could not open ', previewOpen: 'Preview: would open ',
       previewSamsung: 'Preview: would open Samsung Home',
+      photoDate: function (d, month, y) { return month + ' ' + d + ', ' + y; },
       labels: { person: 'Person', car: 'Car', dog: 'Dog', cat: 'Cat' }
     },
     'pt-BR': {
@@ -22,6 +23,7 @@
       noSignal: 'sem sinal', loading: 'carregando…', lowQuality: 'qualidade reduzida', noVideo: 'sem vídeo agora',
       redOpensLive: '● vermelho abre ao vivo', couldNotOpen: 'Não consegui abrir ', previewOpen: 'Prévia: abriria ',
       previewSamsung: 'Prévia: abriria a home da Samsung',
+      photoDate: function (d, month, y) { return d + ' de ' + month + ' de ' + y; },
       labels: { person: 'Pessoa', car: 'Carro', dog: 'Cachorro', cat: 'Gato' }
     }
   };

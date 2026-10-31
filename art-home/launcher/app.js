@@ -1,6 +1,6 @@
 /* Art Home — the home screen. Everything that changes without reinstalling comes from the server
-   (artworks, weather, app row, cameras); without the server it keeps a clock, the bundled artwork and
-   the default app row. */
+   (artworks, photos, weather, app row, cameras); without the server it keeps a clock, the bundled
+   artwork and the default app row. */
 (function () {
   'use strict';
 
@@ -14,7 +14,8 @@
   var AERO = window.AeroTizen && window.AeroTizen.homewatch;   // Home service (AeroTizen)
   var FALLBACK = { title: '', artist: '', date: '', museum: '', url: 'fallback.jpg', width: 16, height: 9, color: '#1d2230' };
 
-  var state = { works: [], i: 0, apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false, misses: 0 };
+  var state = { works: [], i: 0, photos: [], pi: 0, every: 0, photoDate: true, shown: 0,
+                apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false, misses: 0 };
   var timers = { rotate: null, frame: null };
   var $ = function (id) { return document.getElementById(id); };
   var layers = [$('layer-a'), $('layer-b')];
@@ -34,16 +35,34 @@
   }
   function esc(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function credit(w) {
+    if (w.kind === 'photo') {
+      var d = String(w.date || '').split('-').map(Number);   // "2025-03-12", already in the house's date
+      return state.photoDate && d.length === 3 && d[1] ? '<b>' + esc(T.photoDate(d[2], T.months[d[1] - 1], d[0])) + '</b>' : '';
+    }
     if (!w.title) return '';
     var line2 = [w.artist, w.date].filter(Boolean).join(' · ');
     return '<b>' + esc(w.title) + '</b>' + esc(line2) + (w.museum ? '<br>' + esc(w.museum) : '');
   }
 
+  // a photo has no catalogued colour: average a tiny copy of it for the mat (needs the server's CORS)
+  function averageColor(img) {
+    try {
+      var c = document.createElement('canvas'); c.width = 8; c.height = 8;
+      var g = c.getContext('2d'); g.drawImage(img, 0, 0, 8, 8);
+      var px = g.getImageData(0, 0, 8, 8).data, sum = [0, 0, 0];
+      for (var i = 0; i < px.length; i += 4) { sum[0] += px[i]; sum[1] += px[i + 1]; sum[2] += px[i + 2]; }
+      return '#' + sum.map(function (v) { var h = Math.round(v / 64).toString(16); return h.length < 2 ? '0' + h : h; }).join('');
+    } catch (e) { return null; }   // no canvas or a tainted one: the default mat colour
+  }
+
   function show(w) {
-    var url = w.url || (SERVER + '/art/' + w.file);
+    var photo = w.kind === 'photo';
+    var url = w.url || (SERVER + (photo ? '/photos/' : '/art/') + w.file);
     var pre = new Image();
+    if (photo) pre.crossOrigin = 'anonymous';
     pre.onload = function () {
       state.misses = 0;
+      if (photo && !w.color) w.color = averageColor(pre);
       var next = layers[1 - state.layer], current = layers[state.layer];
       var ratio = (w.width || pre.width) / (w.height || pre.height);
       next.className = 'layer' + (Math.abs(ratio - 16 / 9) > 0.14 ? ' matted' : '');
@@ -62,11 +81,20 @@
     pre.onerror = function () {
       if (w === FALLBACK) return;
       state.misses += 1;
-      if (state.misses < state.works.length) nextWork();
+      if (state.misses < pool()) nextWork();
     };
     pre.src = url;
   }
+  function photosOn() { return state.every > 0 && state.photos.length > 0; }
+  function pool() { return state.works.length + (photosOn() ? state.photos.length : 0); }
+  // every `every`-th picture is a photo (1 = photos only); without artworks, photos only
   function nextWork() {
+    state.shown += 1;
+    if (photosOn() && (!state.works.length || state.shown % state.every === 0)) {
+      state.pi = (state.pi + 1) % state.photos.length;
+      show(state.photos[state.pi]);
+      return;
+    }
     if (!state.works.length) { show(FALLBACK); return; }
     state.i = (state.i + 1) % state.works.length;
     show(state.works[state.i]);
@@ -148,8 +176,11 @@
     x.onload = function () {
       if (x.status !== 200) return failed();
       var d; try { d = JSON.parse(x.responseText); } catch (e) { return failed(); }
-      var first = !state.works.length;
+      var first = !pool();
       if (d.works && d.works.length) state.works = d.works;
+      if (d.photos) { state.photos = d.photos; state.pi = Math.min(state.pi, Math.max(0, d.photos.length - 1)); }
+      state.every = d.photos_every || 0;
+      state.photoDate = d.photos_date !== false;
       if (d.cameras && d.cameras.list && d.cameras.list.length && window.Cameras) {
         window.Cameras.configure(d.cameras);
         state.cameras = true;
@@ -166,7 +197,7 @@
         $('weather-text').textContent = d.weather.text;
         $('weather').hidden = false;
       } else { $('weather').hidden = true; }
-      if (first && state.works.length) { state.i = 0; show(state.works[0]); scheduleRotation(); }
+      if (first && pool()) { state.i = -1; state.pi = -1; state.shown = 0; nextWork(); scheduleRotation(); }
       setTimeout(load, 10 * 60 * 1000);
     };
     x.onerror = x.ontimeout = failed;

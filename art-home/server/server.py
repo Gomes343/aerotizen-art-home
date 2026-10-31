@@ -11,6 +11,10 @@ clock, the bundled artwork and its last app row. Python standard library only.
     GET  /demo/<file>.jpg       → placeholder camera frames (demo mode, for screenshots)
     GET  /healthz
     POST /api/turn-off?idle_min=<n>[&dry_run=1] → the TV ASKS; this server checks and decides
+    GET  /photos                → the phone page to pick photos from Google Photos (photos.py)
+    GET  /photos/<file>         → a downloaded photo; /photos/thumbs/<file> its thumbnail
+    GET  /api/photos            → set-up state, the photos and the picking job
+    POST /api/photos/pick | /api/photos/delete?id=<id> | /api/photos/disconnect   (header X-Art-Home: 1)
 
 Several TVs: list them in `tvs` (each with its `ip`); a TV may set its own apps, energy and art.
 """
@@ -25,6 +29,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+
+import photos
 
 HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = pathlib.Path(os.environ.get("ART_HOME_CONFIG", HERE / "config.json"))
@@ -252,7 +258,7 @@ ALERTS = Alerts()
 
 
 # ---------------------------------------------------------------- one server, several TVs
-PER_TV = ("apps", "energy", "art")  # what a TV entry may set for itself
+PER_TV = ("apps", "energy", "art", "photos")  # what a TV entry may set for itself
 
 
 def tvs(cfg):
@@ -277,6 +283,16 @@ def for_tv(cfg, client_ip):
     """The config as one TV sees it: its own apps/energy/art replace the shared ones."""
     tv = tv_for(cfg, client_ip) or {}
     return {**cfg, **{k: tv[k] for k in PER_TV if k in tv}}
+
+
+def photo_every(ph):
+    """Every Nth picture is a photo (1 = photos only); 0 = photos off for this TV or a bad value."""
+    if not ph.get("enabled"):
+        return 0
+    try:
+        return max(1, int(ph.get("every", 2)))
+    except (TypeError, ValueError):
+        return 0
 
 
 # ---------------------------------------------------------------- turning the TV off (energy saving)
@@ -361,13 +377,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         cfg = config()
         if path == "/healthz":
             n = len(works())
-            self._json({"ok": n > 0, "works": n, "alerts": {"seq": ALERTS.seq, "error": ALERTS.error}})
+            self._json(
+                {
+                    "ok": n > 0,
+                    "works": n,
+                    "photos": len(photos.catalog()),
+                    "alerts": {"seq": ALERTS.seq, "error": ALERTS.error},
+                }
+            )
         elif path == "/api/home":
             cfg = for_tv(cfg, self.client_address[0])
             demo_weather = {"state": "partlycloudy", "text": "Partly cloudy", "temperature": 21}
+            ph = cfg.get("photos", {})
+            every = photo_every(ph)
             self._json(
                 {
                     "works": works(),
+                    "photos": photos.items() if every else [],
+                    "photos_every": every,
+                    "photos_date": ph.get("show_date", True),
                     "weather": demo_weather if cfg.get("demo") else weather(cfg),
                     "apps": cfg.get("apps", []),
                     "cameras": cameras(cfg),
@@ -385,6 +413,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(ALERTS.since(n))
         elif path.startswith("/art/"):
             self._file(ART, path[len("/art/") :], "public, max-age=604800")
+        elif path == "/photos":
+            self._file(HERE, "photos.html", "no-store")
+        elif path.startswith("/photos/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values():
+            self._file(photos.DATA / "photos", path[len("/photos/") :], "public, max-age=604800")
+        elif path == "/api/photos":
+            self._json({**photos.status(), "locale": cfg.get("locale", "en")})
         elif path.startswith("/demo/"):
             self._file(DEMO, path[len("/demo/") :], "no-store")
         elif path in ("/", "/app"):
@@ -408,7 +442,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"turned_off": False, "reason": e.__class__.__name__}, 502)
             return
+        if path.startswith("/api/photos/"):
+            self._photos_post(path)
+            return
         self.send_error(404)
+
+    def _photos_post(self, path):
+        # a custom header makes a cross-site form or fetch from another page impossible without a
+        # CORS preflight, which this server never answers
+        if self.headers.get("X-Art-Home") != "1":
+            self._json({"error": "missing X-Art-Home header"}, 403)
+            return
+        try:
+            if path == "/api/photos/pick":
+                job = photos.PICKER.start(config().get("photos", {}).get("max_pick", 0))
+                self._json({k: v for k, v in job.items() if k != "session"})
+            elif path == "/api/photos/delete":
+                self._json({"deleted": photos.delete(self._query().get("id", [""])[0])})
+            elif path == "/api/photos/disconnect":
+                self._json({"signed_out": photos.logout()})
+            else:
+                self.send_error(404)
+        except photos.NotConnected as e:
+            self._json({"error": str(e)}, 409)
+        except Exception as e:
+            self._json({"error": f"{e.__class__.__name__}: {e}"}, 502)
 
     def log_message(self, *_):
         pass

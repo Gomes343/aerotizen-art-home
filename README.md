@@ -48,6 +48,9 @@ Paintings: Gustave Courbet and Claude Monet, Cleveland Museum of Art, CC0.*
 - **Arrival mode.** The page only loads from scratch when the TV powers on, so it starts dim in
   frame mode: whoever walks into the room sees the artwork and the camera pop-ups without the TV
   lighting up fully. Any key brings full brightness.
+- **Your own photos between the artworks** (optional, per TV). Pick them in Google Photos from your
+  phone; the server downloads them once and the TV alternates artwork and photo, each on a mat in its
+  own colour, captioned with the day it was taken. See [Photos from Google Photos](#photos-from-google-photos-optional).
 - **Weather** from any Home Assistant `weather.*` entity, no extra API key.
 - **English and Brazilian Portuguese** (`"locale": "en"` or `"pt-BR"`); adding a language is one
   block in `launcher/i18n.js`.
@@ -68,6 +71,7 @@ AeroTizen CLI.
       │                               server.py  ── artworks (art/), config.json, weather ← Home Assistant
       ▼                                   ▲          detection alerts ← Frigate /api/events
  Samsung TV ── Art Home package ──────────┘          turn-off request → Home Assistant
+                                                     photos.py  ── photos you picked ← Google Photos (once)
    ├─ our screen: launcher/ (art, clock, apps, cameras, pop-ups, energy)
    ├─ AeroTizen service (unchanged): brings Home back to Art Home
    └─ camera images/video straight from Frigate and go2rtc
@@ -80,7 +84,8 @@ AeroTizen CLI.
   signing certificate — see AeroTizen's README. Art Home ships AeroTizen launcher 2.5.0's Home service.
 - An always-on machine on the same LAN for `server/server.py` (Python 3.10+, standard library only;
   `curate_art.py` needs Pillow).
-- Optional: Home Assistant (weather, turning the TV off), Frigate + go2rtc (cameras and pop-ups).
+- Optional: Home Assistant (weather, turning the TV off), Frigate + go2rtc (cameras and pop-ups), a
+  Google account with Google Photos and a Google Cloud project (your own photos).
 
 ## Setup
 
@@ -110,6 +115,52 @@ Esc). Set `"demo": true` to see placeholder cameras without a Frigate.
 
 **Undo everything:** `aerotizen --tv TV_IP home restore --yes`, unplug for 60 s, then uninstall the
 package. Your TV goes back to Samsung Home exactly as the backup recorded it.
+
+## Photos from Google Photos (optional)
+
+Since 2025 Google lets an app read **only the photos a person picks** in Google's own picker — no app can
+read your library or follow an album any more. So Art Home works like this: you pick on your phone, the
+server downloads those photos once (fitted inside 2560 x 1440, plus a thumbnail) into its data folder,
+and the TVs that turned photos on show them between the artworks. The TV never talks to Google; with the
+internet down the photos keep showing. New photos mean picking again (already downloaded ones are
+skipped).
+
+**Set up once** (about five minutes):
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), in a project of yours, enable the
+   **Google Photos Picker API** (not the "Google Picker API", which is a different one).
+2. Create an **OAuth client ID** of type **Desktop app** and download its JSON as
+   `server/data/google-client.json` (the data folder is `ART_HOME_DATA`; in the Docker example, `/data`).
+   If the consent screen asks, a project of type *External* in *Testing* works: add your own Google
+   account as a test user. Its sign-in expires after 7 days, which only matters when you pick: sign in
+   again then.
+3. Sign in once on the server, with the Google account that has the photos:
+
+   ```sh
+   cd art-home/server && python3 photos.py login     # Docker: docker exec -it art-home python photos.py login
+   ```
+
+   It prints a Google address. Open it in any browser and sign in. If that browser is on another
+   computer, the last page fails to load (`http://127.0.0.1:8796/?code=…`) — that is expected: copy the
+   whole address from the address bar and paste it into the terminal. The sign-in is stored in
+   `google-token.json` (mode 600) and grants only the Picker scope.
+4. Turn photos on in `config.json`, for every TV or per TV:
+
+   ```json
+   "photos": { "enabled": true, "every": 2, "show_date": true, "max_pick": 0 }
+   ```
+
+   `every`: every Nth picture is a photo (2 = artwork and photo alternate, 3 = one photo in three,
+   1 = photos only). `max_pick`: the most photos one pick may bring (0 = Google's limit, 2000). A TV
+   entry may carry its own `photos` (the example config has a bedroom with photos only).
+5. On your phone, open **`http://SERVER:8895/photos`** → **Choose photos**. Google Photos opens; pick and
+   press *Done*. The page shows the download and the photos, each with **×** to take it off the TVs
+   (it stays in Google Photos). **Sign out** there, or `python3 photos.py logout`, revokes the sign-in.
+
+Notes: videos are skipped; Google does not hand out where a photo was taken, so the caption is the date
+only. The photos are served on your LAN like the artworks — anyone on it who knows the address can see
+them. The phone page's actions require a custom header, so another website can't trigger them from
+your browser.
 
 ## Tests
 
@@ -148,6 +199,8 @@ These cost us an evening each; they may save you one.
 
 ## Limitations
 
+- Google Photos albums can't be followed (Google removed that for third-party apps in 2025): new photos
+  are picked again from the phone page.
 - Tizen web apps can't draw over other apps: pop-ups appear only while Art Home is on screen (home,
   frame mode, cameras). Inside YouTube or Netflix, rely on your phone notifications.
 - There is no public API for the TV's own presence/motion sensors, so "arrival" means "the TV was

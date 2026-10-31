@@ -4,4 +4,6 @@ config.json
 # built package and downloaded artworks
 dist/
 server/art/
+# Google Photos: downloaded photos and the sign-in (google-client.json, google-token.json)
+server/data/
 __pycache__/

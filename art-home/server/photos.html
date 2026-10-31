@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14161c">
+<title>Art Home photos</title>
+<style>
+  /* the phone page that picks photos for the TV — one file, no external resources */
+  :root {
+    --bg: #14161c; --card: #1d2029; --line: #2c303b; --text: #f5f3ee; --soft: #a9a8a3;
+    --accent: #e9e4d8; --accent-text: #14161c; --bad: #ff8a7a; --radius: 14px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); padding: 20px 16px 40px;
+    font: 16px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    max-width: 760px; margin: 0 auto;
+  }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--soft); margin: 2px 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  .card ol { padding-left: 20px; color: var(--soft); }
+  .card ol li { margin: 6px 0; }
+  code { background: #0f1116; border-radius: 6px; padding: 1px 6px; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+  button.main {
+    width: 100%; min-height: 52px; border: 0; border-radius: var(--radius);
+    background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.main:disabled { opacity: 0.5; }
+  #pickbox { margin-bottom: 20px; }
+  #job { margin-top: 10px; color: var(--soft); }
+  #job:empty { display: none; }
+  #job.bad { color: var(--bad); }
+  #job a { color: var(--text); }
+  .count { color: var(--soft); margin: 4px 0 10px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+  .ph { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #0f1116; }
+  .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ph button {
+    position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-radius: 50%;
+    border: 0; background: rgba(10, 11, 14, 0.72); color: #fff; font-size: 18px; line-height: 32px; cursor: pointer;
+  }
+  .empty { color: var(--soft); padding: 18px 0; text-align: center; }
+  footer { margin-top: 24px; text-align: center; }
+  footer button { background: none; border: 0; color: var(--soft); text-decoration: underline; font: inherit; cursor: pointer; padding: 8px; }
+</style>
+</head>
+<body>
+  <h1 id="title">Art Home</h1>
+  <p class="sub" id="subtitle"></p>
+
+  <div class="card" id="setup" hidden></div>
+
+  <div id="main" hidden>
+    <section id="pickbox">
+      <button class="main" id="pick"></button>
+      <div id="job" aria-live="polite"></div>
+    </section>
+    <div class="count" id="count"></div>
+    <div id="grid"></div>
+    <footer><button id="logout" hidden></button></footer>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var STRINGS = {
+    en: {
+      title: 'Photos on the TV',
+      subtitle: 'Pick photos in Google Photos. They are downloaded once to this server; the TV shows them between the artworks.',
+      setupTitle: 'One-time setup on the server',
+      noClient: 'Create an OAuth client of type "Desktop app" in Google Cloud (with the "Google Photos Picker API" enabled) and save its JSON as <code>google-client.json</code> in the server\'s data folder.',
+      noLogin: 'Sign in once on the server: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Then reload this page.',
+      pick: 'Choose photos from Google Photos',
+      waiting: 'Waiting for your choice in Google Photos… ',
+      openAgain: 'open it again',
+      downloading: function (j) { return 'Downloading… ' + j.saved + ' of ' + j.picked; },
+      done: function (j) { return j.saved + ' added' + (j.skipped ? ', ' + j.skipped + ' skipped (already here or video)' : '') + (j.failed ? ', ' + j.failed + ' failed' : '') + '.'; },
+      expired: 'The choice took too long. Press the button again.',
+      error: 'Something went wrong: ',
+      count: function (n) { return n === 1 ? '1 photo' : n + ' photos'; },
+      empty: 'No photos yet.',
+      remove: 'Remove from the TV',
+      confirmRemove: 'Remove this photo from the TV? (It stays in Google Photos.)',
+      logout: 'Sign out of Google Photos',
+      confirmLogout: 'Sign out? The photos already here stay; picking new ones needs signing in again.'
+    },
+    'pt-BR': {
+      title: 'Fotos na TV',
+      subtitle: 'Escolha fotos no Google Fotos. Elas são baixadas uma vez para este servidor; a TV as mostra entre as obras.',
+      setupTitle: 'Configuração única no servidor',
+      noClient: 'Crie no Google Cloud um cliente OAuth do tipo "App para computador" (com a "Google Photos Picker API" ativada) e salve o JSON dele como <code>google-client.json</code> na pasta de dados do servidor.',
+      noLogin: 'Entre uma vez no servidor: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Depois recarregue esta página.',
+      pick: 'Escolher fotos do Google Fotos',
+      waiting: 'Esperando a sua escolha no Google Fotos… ',
+      openAgain: 'abrir de novo',
+      downloading: function (j) { return 'Baixando… ' + j.saved + ' de ' + j.picked; },
+      done: function (j) { return j.saved + ' adicionada(s)' + (j.skipped ? ', ' + j.skipped + ' pulada(s) (já estavam aqui ou vídeo)' : '') + (j.failed ? ', ' + j.failed + ' com falha' : '') + '.'; },
+      expired: 'A escolha demorou demais. Toque no botão de novo.',
+      error: 'Algo deu errado: ',
+      count: function (n) { return n === 1 ? '1 foto' : n + ' fotos'; },
+      empty: 'Nenhuma foto ainda.',
+      remove: 'Tirar da TV',
+      confirmRemove: 'Tirar esta foto da TV? (Ela continua no Google Fotos.)',
+      logout: 'Sair do Google Fotos',
+      confirmLogout: 'Sair? As fotos que já estão aqui ficam; para escolher novas será preciso entrar de novo.'
+    }
+  };
+  var T = STRINGS.en, shown = '', timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function api(method, path) {
+    return fetch(path, { method: method, headers: method === 'POST' ? { 'X-Art-Home': '1' } : {} })
+      .then(function (r) {
+        return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; });
+      });
+  }
+
+  function jobLine(j) {
+    var el = $('job');
+    el.className = j.state === 'error' || j.state === 'expired' ? 'bad' : '';
+    if (j.state === 'waiting') {
+      el.textContent = T.waiting;
+      var a = document.createElement('a');
+      a.href = j.picker_uri; a.target = '_blank'; a.rel = 'noopener'; a.textContent = T.openAgain;
+      el.appendChild(a);
+    } else if (j.state === 'downloading') el.textContent = T.downloading(j);
+    else if (j.state === 'done') el.textContent = T.done(j);
+    else if (j.state === 'expired') el.textContent = T.expired;
+    else if (j.state === 'error') el.textContent = T.error + j.error;
+    else el.textContent = '';
+    $('pick').disabled = j.state === 'downloading';
+  }
+
+  function grid(list) {
+    var key = list.map(function (p) { return p.id; }).join('|');
+    if (key === shown) return;
+    shown = key;
+    var g = $('grid');
+    g.innerHTML = '';
+    if (!list.length) { g.innerHTML = '<p class="empty"></p>'; g.firstChild.textContent = T.empty; return; }
+    list.forEach(function (p) {
+      var d = document.createElement('div');
+      d.className = 'ph';
+      var img = document.createElement('img');
+      img.loading = 'lazy'; img.alt = p.date || ''; img.src = '/photos/thumbs/' + encodeURIComponent(p.file);
+      var x = document.createElement('button');
+      x.type = 'button'; x.textContent = '×'; x.title = T.remove; x.setAttribute('aria-label', T.remove);
+      x.onclick = function () {
+        if (!confirm(T.confirmRemove)) return;
+        api('POST', '/api/photos/delete?id=' + encodeURIComponent(p.id)).then(refresh, fail);
+      };
+      d.appendChild(img); d.appendChild(x); g.appendChild(d);
+    });
+  }
+
+  function render(s) {
+    T = STRINGS[s.locale] || STRINGS.en;
+    document.documentElement.lang = s.locale || 'en';
+    $('title').textContent = T.title;
+    $('subtitle').textContent = T.subtitle;
+    $('pick').textContent = T.pick;
+    $('logout').textContent = T.logout;
+    var ready = s.client && s.signed_in;
+    $('setup').hidden = ready;
+    if (!ready) {
+      $('setup').innerHTML = '<h2></h2><ol>' + (s.client ? '' : '<li>' + T.noClient + '</li>') + '<li>' + T.noLogin + '</li></ol>';
+      $('setup').firstChild.textContent = T.setupTitle;
+    }
+    $('main').hidden = !ready && !s.count;
+    $('pickbox').hidden = !ready;
+    $('logout').hidden = !s.signed_in;
+    $('count').textContent = T.count(s.count);
+    jobLine(s.job || {});
+    grid(s.photos || []);
+    clearTimeout(timer);
+    var busy = s.job && (s.job.state === 'waiting' || s.job.state === 'downloading');
+    timer = setTimeout(refresh, busy ? 2500 : 20000);
+  }
+  function fail(e) { $('job').className = 'bad'; $('job').textContent = T.error + e.message; }
+  function refresh() { return api('GET', '/api/photos').then(render, fail); }
+
+  $('pick').onclick = function () {
+    // open the tab now, inside the tap: a window opened after the request returns is a blocked pop-up
+    var w = window.open('about:blank', '_blank');
+    api('POST', '/api/photos/pick').then(function (j) {
+      if (w) w.location.href = j.picker_uri;
+      refresh();
+    }, function (e) { if (w) w.close(); fail(e); });
+  };
+  $('logout').onclick = function () {
+    if (confirm(T.confirmLogout)) api('POST', '/api/photos/disconnect').then(refresh, fail);
+  };
+  refresh();
+})();
+</script>
+</body>
+</html>

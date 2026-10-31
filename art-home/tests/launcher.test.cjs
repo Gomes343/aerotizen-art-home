@@ -97,6 +97,47 @@ test('one bad image skips to the next work', () => {
   assert.match(t.elements.credit.innerHTML, /Work 2/);
 });
 
+/* ---------- photos between the artworks ---------- */
+
+const PHOTOS = [1, 2].map((i) => ({ id: 'p' + i, kind: 'photo', file: 'p' + i + '.jpg', date: '2025-03-1' + i, width: 3, height: 4 }));
+// what was put on screen after `n` rotations: 'art' or 'photo' per picture
+function sequence(t, n) {
+  for (let k = 0; k < n; k++) t.advance(90 * 1000);
+  return t.imageLoads.filter((u) => /\/(art|photos)\//.test(u)).map((u) => (u.includes('/photos/') ? 'photo' : 'art'));
+}
+
+test('photos alternate with the artworks when the TV turned them on', () => {
+  const t = tv({ homeData: home({ photos: PHOTOS, photos_every: 2 }) });
+  assert.deepEqual(sequence(t, 5), ['art', 'photo', 'art', 'photo', 'art', 'photo']);
+  assert.ok(t.imageLoads.includes('http://server/photos/p1.jpg'));
+});
+
+test('every 3 → one photo per three pictures; every 1 → photos only; none → artworks only', () => {
+  assert.deepEqual(sequence(tv({ homeData: home({ photos: PHOTOS, photos_every: 3 }) }), 5), ['art', 'art', 'photo', 'art', 'art', 'photo']);
+  assert.deepEqual(sequence(tv({ homeData: home({ photos: PHOTOS, photos_every: 1 }) }), 2), ['photo', 'photo', 'photo']);
+  assert.deepEqual(sequence(tv({ homeData: home({ photos: [], photos_every: 2 }) }), 2), ['art', 'art', 'art']);
+  assert.deepEqual(sequence(tv({ homeData: home({ photos: PHOTOS, photos_every: 0 }) }), 2), ['art', 'art', 'art']);
+});
+
+test('without artworks a TV with photos on shows only photos', () => {
+  assert.deepEqual(sequence(tv({ homeData: home({ works: [], photos: PHOTOS, photos_every: 2 }) }), 2), ['photo', 'photo', 'photo']);
+});
+
+test('a photo is credited with its date in the TV language, and only if show_date is on', () => {
+  const t = tv({ locale: 'pt-BR', homeData: home({ photos: PHOTOS, photos_every: 1 }) });
+  t.advance(100);
+  assert.match(t.elements.credit.innerHTML, /^<b>1[12] de março de 2025<\/b>$/);
+  const quiet = tv({ homeData: home({ photos: PHOTOS, photos_every: 1, photos_date: false }) });
+  quiet.advance(100);
+  assert.equal(quiet.elements.credit.innerHTML, '');
+});
+
+test('with every photo failing too it stops after one lap of artworks and photos', () => {
+  const t = tv({ homeData: home({ photos: PHOTOS, photos_every: 2 }), images: () => false });
+  t.advance(1000);
+  assert.equal(t.imageLoads.filter((u) => /\/(art|photos)\//.test(u)).length, WORKS.length + PHOTOS.length);
+});
+
 test('without the server it keeps the clock and asks again every minute', () => {
   const t = tv({ homeData: null });
   assert.match(t.elements.clock.textContent, /^12:00$/);
