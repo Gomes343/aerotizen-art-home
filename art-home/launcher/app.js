@@ -14,7 +14,7 @@
   var AERO = window.AeroTizen && window.AeroTizen.homewatch;   // Home service (AeroTizen)
   var FALLBACK = { title: '', artist: '', date: '', museum: '', url: 'fallback.jpg', width: 16, height: 9, color: '#1d2230' };
 
-  var state = { works: [], i: 0, apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false };
+  var state = { works: [], i: 0, apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false, misses: 0 };
   var timers = { rotate: null, frame: null };
   var $ = function (id) { return document.getElementById(id); };
   var layers = [$('layer-a'), $('layer-b')];
@@ -43,6 +43,7 @@
     var url = w.url || (SERVER + '/art/' + w.file);
     var pre = new Image();
     pre.onload = function () {
+      state.misses = 0;
       var next = layers[1 - state.layer], current = layers[state.layer];
       var ratio = (w.width || pre.width) / (w.height || pre.height);
       next.className = 'layer' + (Math.abs(ratio - 16 / 9) > 0.14 ? ' matted' : '');
@@ -56,7 +57,13 @@
         $('credit').innerHTML = credit(w);
       }); });
     };
-    pre.onerror = function () { if (w !== FALLBACK) nextWork(); };
+    // A broken image skips to the next one — but with the server down every image fails: after one
+    // full lap the current artwork stays until the next rotation, instead of requesting forever.
+    pre.onerror = function () {
+      if (w === FALLBACK) return;
+      state.misses += 1;
+      if (state.misses < state.works.length) nextWork();
+    };
     pre.src = url;
   }
   function nextWork() {
@@ -66,7 +73,7 @@
   }
   function scheduleRotation() {
     clearInterval(timers.rotate);
-    timers.rotate = setInterval(nextWork, state.rotate_s * 1000);
+    timers.rotate = setInterval(function () { state.misses = 0; nextWork(); }, state.rotate_s * 1000);
   }
 
   /* ---------- app row ---------- */
@@ -90,7 +97,7 @@
   function open(a) {
     if (a.id === CAMERAS.id) { window.Cameras.open(); return; }
     if (a.id === SAMSUNG.id) {
-      if (AERO) { AERO.useSamsungHome(); } else { toast(T.previewSamsung); }
+      if (AERO && ON_TV) { AERO.useSamsungHome(); } else { toast(T.previewSamsung); }
       return;
     }
     if (!ON_TV) { toast(T.previewOpen + a.name); return; }

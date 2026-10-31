@@ -73,7 +73,8 @@ AeroTizen CLI.
 ## Requirements
 
 - A Samsung TV with Tizen (tested: 2024 QN85D Neo QLED, **Tizen 9.0**, armv7) in **Developer Mode**.
-- The **AeroTizen CLI** (≥ 2.4.0) and a Samsung signing certificate — see AeroTizen's README.
+- The **AeroTizen CLI** (≥ 2.5.0, which checks the TV runtime before touching Home) and a Samsung
+  signing certificate — see AeroTizen's README. Art Home ships AeroTizen launcher 2.5.0's Home service.
 - An always-on machine on the same LAN for `server/server.py` (Python 3.10+, standard library only;
   `curate_art.py` needs Pillow).
 - Optional: Home Assistant (weather, turning the TV off), Frigate + go2rtc (cameras and pop-ups).
@@ -106,6 +107,18 @@ Esc). Set `"demo": true` to see placeholder cameras without a Frigate.
 
 **Undo everything:** `aerotizen --tv TV_IP home restore --yes`, unplug for 60 s, then uninstall the
 package. Your TV goes back to Samsung Home exactly as the backup recorded it.
+
+## Tests
+
+```sh
+art-home/test.sh      # Python 3.10+ and Node 20+; no network, no TV, no npm install
+```
+
+They cover the server (alert rules, the turn-off decision, weather cache, HTTP paths), the launcher
+running in a small fake TV (navigation, frame mode, failing images, pop-ups, cameras, energy saving,
+AeroTizen's `homewatch.js` on top of our bridge) and the package build against the AeroTizen tree in
+this repository — run them after merging an AeroTizen update. Changes are listed in
+[`art-home/CHANGELOG.md`](art-home/CHANGELOG.md).
 
 ## Lessons from one TV (read before debugging)
 

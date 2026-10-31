@@ -7,6 +7,7 @@ Idempotent: works already downloaded are not downloaded again. Needs Pillow.
     python3 curate_art.py               # fill up to 60 works
     python3 curate_art.py --target 120
 """
+
 import argparse
 import io
 import json
@@ -25,12 +26,41 @@ API = "https://openaccess-api.clevelandart.org/api/artworks/"
 UA = {"User-Agent": "aerotizen-art-home (home TV art frame)"}
 
 # For a living room: landscapes, sea, gardens, towns. No martyrdom, no battles.
-SEARCHES = ["landscape", "seascape", "harbor", "garden", "river", "mountains", "sunset",
-            "flowers", "village", "winter", "forest", "lake", "beach", "meadow"]
-AVOID = ("crucifix", "martyr", "saint", "virgin", "christ", "madonna", "death", "battle",
-         "massacre", "dead", "lamentation", "entombment", "judith", "holofernes", "skull")
+SEARCHES = [
+    "landscape",
+    "seascape",
+    "harbor",
+    "garden",
+    "river",
+    "mountains",
+    "sunset",
+    "flowers",
+    "village",
+    "winter",
+    "forest",
+    "lake",
+    "beach",
+    "meadow",
+]
+AVOID = (
+    "crucifix",
+    "martyr",
+    "saint",
+    "virgin",
+    "christ",
+    "madonna",
+    "death",
+    "battle",
+    "massacre",
+    "dead",
+    "lamentation",
+    "entombment",
+    "judith",
+    "holofernes",
+    "skull",
+)
 MAX_WIDTH = 2560
-RATIO = (1.25, 2.4)   # landscape only; the TV is 1.78
+RATIO = (1.25, 2.4)  # landscape only; the TV is 1.78
 
 
 def fetch(url, attempts=8, timeout=60):
@@ -39,7 +69,7 @@ def fetch(url, attempts=8, timeout=60):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
                 return r.read()
-        except Exception as e:  # noqa: BLE001 — any network failure is a new attempt
+        except Exception as e:
             if i == attempts - 1:
                 raise
             print(f"  network: {e.__class__.__name__}, retrying ({i + 1})", flush=True)
@@ -47,8 +77,16 @@ def fetch(url, attempts=8, timeout=60):
 
 
 def candidates(search, limit=100):
-    q = urllib.parse.urlencode({"cc0": 1, "has_image": 1, "type": "Painting", "q": search, "limit": limit,
-                                "fields": "id,title,creators,creation_date,images,share_license_status"})
+    q = urllib.parse.urlencode(
+        {
+            "cc0": 1,
+            "has_image": 1,
+            "type": "Painting",
+            "q": search,
+            "limit": limit,
+            "fields": "id,title,creators,creation_date,images,share_license_status",
+        }
+    )
     for a in json.loads(fetch(f"{API}?{q}")).get("data", []):
         if a.get("share_license_status") != "CC0":
             continue
@@ -62,9 +100,14 @@ def candidates(search, limit=100):
             continue
         creator = (a.get("creators") or [{}])[0].get("description") or "Unknown artist"
         yield {
-            "id": f"cma-{a['id']}", "title": title, "artist": creator.split(" (")[0],
-            "artist_full": creator, "date": a.get("creation_date") or "",
-            "museum": "Cleveland Museum of Art", "license": "CC0", "source": img["url"],
+            "id": f"cma-{a['id']}",
+            "title": title,
+            "artist": creator.split(" (")[0],
+            "artist_full": creator,
+            "date": a.get("creation_date") or "",
+            "museum": "Cleveland Museum of Art",
+            "license": "CC0",
+            "source": img["url"],
             "page": f"https://clevelandart.org/art/collection/search?search={a['id']}",
         }
 
@@ -102,7 +145,7 @@ def main():
                 continue
             try:
                 catalog.append(process(work))
-            except Exception as e:  # noqa: BLE001 — one bad work doesn't stop the run
+            except Exception as e:
                 print(f"  skipped {work['id']}: {e}", flush=True)
                 continue
             seen.add(work["id"])
