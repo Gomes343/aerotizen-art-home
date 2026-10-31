@@ -3,6 +3,13 @@
 AeroTizen keeps its own changelogs (`launcher/CHANGELOG.md`, `CHANGELOG-CLI.md`); this one covers only
 Art Home (`art-home/`).
 
+## Unreleased
+
+- **Several TVs on one server.** List them in `tvs` (each with its `ip`); a TV may set its own `apps`,
+  `energy` and `art`. A turn-off request now turns off **the TV that asked**, and only a TV listed in
+  the config can ask: before, a second TV (or a desktop preview left open at night) would turn off the
+  one configured TV. The single `tv` of older configs still works.
+
 ## 0.2.0 — 2026-10-31
 
 - **Up to date with AeroTizen launcher 2.5.0 and CLI 2.5.0.** The Home service and `homewatch.js` that

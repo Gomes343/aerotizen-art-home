@@ -11,6 +11,8 @@ clock, the bundled artwork and its last app row. Python standard library only.
     GET  /demo/<file>.jpg       → placeholder camera frames (demo mode, for screenshots)
     GET  /healthz
     POST /api/turn-off?idle_min=<n>[&dry_run=1] → the TV ASKS; this server checks and decides
+
+Several TVs: list them in `tvs` (each with its `ip`); a TV may set its own apps, energy and art.
 """
 
 import http.server
@@ -249,8 +251,36 @@ class Alerts:
 ALERTS = Alerts()
 
 
+# ---------------------------------------------------------------- one server, several TVs
+PER_TV = ("apps", "energy", "art")  # what a TV entry may set for itself
+
+
+def tvs(cfg):
+    """The TVs this server knows: the `tvs` list, or the single `tv` of a one-TV config."""
+    if "tvs" in cfg:
+        return cfg["tvs"] or []
+    return [cfg["tv"]] if cfg.get("tv") else []
+
+
+def tv_for(cfg, client_ip):
+    """Which TV is asking, by its address. A single TV without an `ip` answers for any client."""
+    known = tvs(cfg)
+    for tv in known:
+        if tv.get("ip") == client_ip:
+            return tv
+    if len(known) == 1 and not known[0].get("ip"):
+        return known[0]
+    return None
+
+
+def for_tv(cfg, client_ip):
+    """The config as one TV sees it: its own apps/energy/art replace the shared ones."""
+    tv = tv_for(cfg, client_ip) or {}
+    return {**cfg, **{k: tv[k] for k in PER_TV if k in tv}}
+
+
 # ---------------------------------------------------------------- turning the TV off (energy saving)
-_last_off = 0.0
+_last_off = {}  # media player → when it was last turned off
 
 
 def in_window(win, h):
@@ -261,34 +291,37 @@ def in_window(win, h):
     return a <= h < b if a <= b else (h >= a or h < b)
 
 
-def turn_off(idle_min, dry_run=False):
-    """The TV only asks; this decides: option on, night window (SERVER clock — run it in your timezone),
-    at most once per 10 min. `dry_run` checks everything and does NOT turn off: test only with it."""
-    global _last_off
+def turn_off(idle_min, client_ip=None, dry_run=False):
+    """The TV only asks; this decides: option on, the request came from that TV (a desktop preview left
+    open never turns a TV off), night window (SERVER clock — run it in your timezone), at most once per
+    10 min per TV. `dry_run` checks everything and does NOT turn off: test only with it."""
     cfg = config()
-    e = cfg.get("energy", {})
+    tv = tv_for(cfg, client_ip)
+    e = for_tv(cfg, client_ip).get("energy", {})
     if not e.get("turn_off", False):
         return {"turned_off": False, "reason": "energy.turn_off is disabled"}
+    if tv is None:
+        return {"turned_off": False, "reason": f"{client_ip} is not a TV in the config"}
     if not in_window(e.get("night", "23-7"), time.localtime().tm_hour):
         return {
             "turned_off": False,
             "reason": "outside the night window",
             "local_time": time.strftime("%H:%M"),
         }
-    if time.time() - _last_off < 600:
-        return {"turned_off": False, "reason": "already asked less than 10 min ago"}
-    entity = cfg.get("tv", {}).get("ha_media_player")
+    entity = tv.get("ha_media_player")
     if not entity:
-        return {"turned_off": False, "reason": "tv.ha_media_player is not set"}
+        return {"turned_off": False, "reason": "ha_media_player is not set for this TV"}
+    if time.time() - _last_off.get(entity, 0) < 600:
+        return {"turned_off": False, "reason": "already asked less than 10 min ago"}
     if dry_run:
         return {
             "turned_off": False,
             "reason": "dry run: would turn off now",
             "local_time": time.strftime("%H:%M"),
         }
-    _last_off = time.time()
+    _last_off[entity] = time.time()
     ha_call(cfg, "POST", "/api/services/media_player/turn_off", {"entity_id": entity})
-    log(f"energy: TV turned off (idle {idle_min} min at night)")
+    log(f"energy: {tv.get('name') or entity} turned off (idle {idle_min} min at night)")
     return {"turned_off": True}
 
 
@@ -330,6 +363,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             n = len(works())
             self._json({"ok": n > 0, "works": n, "alerts": {"seq": ALERTS.seq, "error": ALERTS.error}})
         elif path == "/api/home":
+            cfg = for_tv(cfg, self.client_address[0])
             demo_weather = {"state": "partlycloudy", "text": "Partly cloudy", "temperature": 21}
             self._json(
                 {
@@ -368,7 +402,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/turn-off":
             q = self._query()
             try:
-                self._json(turn_off(q.get("idle_min", ["?"])[0], dry_run=q.get("dry_run") == ["1"]))
+                idle = q.get("idle_min", ["?"])[0]
+                dry = q.get("dry_run") == ["1"]
+                self._json(turn_off(idle, client_ip=self.client_address[0], dry_run=dry))
             except Exception as e:
                 self._json({"turned_off": False, "reason": e.__class__.__name__}, 502)
             return

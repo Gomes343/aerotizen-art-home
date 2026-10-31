@@ -181,7 +181,9 @@ class TurnOffTest(TempDirs):
 
     def setUp(self):
         super().setUp()
-        server._last_off = 0.0
+        p = mock.patch.object(server, "_last_off", {})
+        p.start()
+        self.addCleanup(p.stop)
         self.calls = []
         p = mock.patch.object(
             server, "ha_call", lambda cfg, method, path, body=None: self.calls.append((method, path, body))
@@ -213,7 +215,7 @@ class TurnOffTest(TempDirs):
             r = server.turn_off(200, dry_run=True)
         self.assertEqual(r["reason"], "dry run: would turn off now")
         self.assertEqual(self.calls, [])
-        self.assertEqual(server._last_off, 0.0)  # a dry run doesn't use up the 10 min
+        self.assertEqual(server._last_off, {})  # a dry run doesn't use up the 10 min
 
     def test_turns_off_once_per_10_minutes(self):
         self.write_config(self.ON)
@@ -225,9 +227,67 @@ class TurnOffTest(TempDirs):
         )
 
     def test_without_the_media_player_it_says_so(self):
-        self.write_config({"energy": self.ON["energy"]})
+        self.write_config({"energy": self.ON["energy"], "tv": {"name": "Living room"}})
         with self.at(2):
-            self.assertEqual(server.turn_off(200)["reason"], "tv.ha_media_player is not set")
+            self.assertEqual(server.turn_off(200)["reason"], "ha_media_player is not set for this TV")
+
+    TWO: ClassVar = {
+        "energy": {"turn_off": True, "night": "23-7"},
+        "tvs": [
+            {"ip": "10.0.0.5", "ha_media_player": "media_player.living"},
+            {"ip": "10.0.0.4", "ha_media_player": "media_player.bedroom", "energy": {"turn_off": False}},
+            {"ip": "10.0.0.6", "ha_media_player": "media_player.office"},
+        ],
+    }
+
+    def off(self, entity):
+        return ("POST", "/api/services/media_player/turn_off", {"entity_id": entity})
+
+    def test_with_several_tvs_it_turns_off_the_one_that_asked(self):
+        self.write_config(self.TWO)
+        with self.at(2):
+            self.assertTrue(server.turn_off(200, client_ip="10.0.0.6")["turned_off"])
+            self.assertTrue(server.turn_off(200, client_ip="10.0.0.5")["turned_off"])  # its own 10 min
+        self.assertEqual(self.calls, [self.off("media_player.office"), self.off("media_player.living")])
+
+    def test_a_tv_can_switch_turning_off_for_itself(self):
+        self.write_config(self.TWO)
+        with self.at(2):
+            r = server.turn_off(200, client_ip="10.0.0.4")
+        self.assertEqual(r["reason"], "energy.turn_off is disabled")
+        self.assertEqual(self.calls, [])
+
+    def test_a_request_not_from_a_tv_never_turns_one_off(self):
+        # a desktop preview left open at night asks too
+        for cfg in (self.TWO, {**self.ON, "tv": {"ip": "10.0.0.5", "ha_media_player": "media_player.tv"}}):
+            self.write_config(cfg)
+            with self.at(2):
+                r = server.turn_off(200, client_ip="10.0.0.99")
+            self.assertEqual(r["reason"], "10.0.0.99 is not a TV in the config")
+        self.assertEqual(self.calls, [])
+
+
+class PerTvTest(unittest.TestCase):
+    CFG: ClassVar = {
+        "apps": ["shared"],
+        "energy": {"turn_off": True},
+        "cameras": {"list": [1]},
+        "tvs": [{"ip": "10.0.0.4", "apps": ["bedroom"], "energy": {"turn_off": False}, "cameras": "no"}],
+    }
+
+    def test_a_tv_sees_its_own_apps_and_energy_and_never_other_keys(self):
+        cfg = server.for_tv(self.CFG, "10.0.0.4")
+        self.assertEqual((cfg["apps"], cfg["energy"]), (["bedroom"], {"turn_off": False}))
+        self.assertEqual(cfg["cameras"], {"list": [1]})
+
+    def test_anyone_else_sees_the_shared_config(self):
+        self.assertEqual(server.for_tv(self.CFG, "10.0.0.9")["apps"], ["shared"])
+
+    def test_a_single_tv_without_ip_answers_for_any_client(self):
+        cfg = {"tv": {"ha_media_player": "m"}}
+        self.assertEqual(server.tv_for(cfg, "1.2.3.4"), {"ha_media_player": "m"})
+        self.assertIsNone(server.tv_for({}, "1.2.3.4"))
+        self.assertIsNone(server.tv_for({"tvs": []}, "1.2.3.4"))
 
 
 class WeatherTest(unittest.TestCase):
@@ -333,6 +393,12 @@ class HttpTest(TempDirs):
         r, _ = self.request("GET", "/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/app/index.html"))
         self.assertEqual(self.request("GET", "/app/index.html")[0].status, 200)
+
+    def test_home_answers_with_the_asking_tvs_own_apps(self):
+        self.write_config(
+            {"demo": True, "apps": [{"id": "x"}], "tvs": [{"ip": "127.0.0.1", "apps": [{"id": "y"}]}]}
+        )
+        self.assertEqual(json.loads(self.request("GET", "/api/home")[1])["apps"], [{"id": "y"}])
 
     def test_turn_off_answers_the_decision(self):
         r, body = self.request("POST", "/api/turn-off?idle_min=130&dry_run=1")

@@ -3,7 +3,9 @@
   "demo": false,
 
   "server": { "url": "http://192.168.1.10:8895", "port": 8895 },
-  "tv": { "ip": "192.168.1.20", "ha_media_player": "media_player.living_room_tv" },
+  "tvs": [
+    { "name": "Living room", "ip": "192.168.1.20", "ha_media_player": "media_player.living_room_tv" }
+  ],
   "home_assistant": { "url": "http://192.168.1.10:8123", "weather_entity": "weather.home" },
 
   "art": { "rotate_s": 90, "frame_after_s": 20 },

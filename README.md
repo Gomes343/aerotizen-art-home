@@ -51,6 +51,9 @@ Paintings: Gustave Courbet and Claude Monet, Cleveland Museum of Art, CC0.*
 - **Weather** from any Home Assistant `weather.*` entity, no extra API key.
 - **English and Brazilian Portuguese** (`"locale": "en"` or `"pt-BR"`); adding a language is one
   block in `launcher/i18n.js`.
+- **Several TVs, one server.** List each TV in `tvs` with its address; a TV may have its own app
+  row, energy and art settings (a bedroom TV without the turn-off, say). Turning off is per TV, and
+  only a TV listed in the config can ask for it — a desktop preview left open never turns one off.
 - **Changes without reinstalling.** Artworks, app row, cameras, alert and energy settings all come
   from the server's `config.json`; the TV re-reads it every 10 minutes.
 
