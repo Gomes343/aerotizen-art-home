@@ -345,17 +345,21 @@ def turn_off(idle_min, client_ip=None, dry_run=False):
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def _json(self, data, status=200):
+    # CORS only where the TV (its own origin) needs it. What only the phone page reads is
+    # same-origin and goes without it, or any page open in a browser at home could read the
+    # list of family photos and download them.
+    def _json(self, data, status=200, cors=True):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
-    def _file(self, base, rel, cache):
+    def _file(self, base, rel, cache, cors=True):
         target = (base / rel).resolve()
         if base.resolve() not in target.parents or not target.is_file():
             self.send_error(404)
@@ -365,7 +369,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
@@ -415,10 +420,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._file(ART, path[len("/art/") :], "public, max-age=604800")
         elif path == "/photos":
             self._file(HERE, "photos.html", "no-store")
+        elif path.startswith("/photos/thumbs/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values():
+            # only the phone page shows thumbnails
+            self._file(photos.DATA / "photos", path[len("/photos/") :], "public, max-age=604800", cors=False)
         elif path.startswith("/photos/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values():
+            # the TV needs CORS here: it averages the photo's colour in a canvas
             self._file(photos.DATA / "photos", path[len("/photos/") :], "public, max-age=604800")
         elif path == "/api/photos":
-            self._json({**photos.status(), "locale": cfg.get("locale", "en")})
+            self._json({**photos.status(), "locale": cfg.get("locale", "en")}, cors=False)
         elif path.startswith("/demo/"):
             self._file(DEMO, path[len("/demo/") :], "no-store")
         elif path in ("/", "/app"):
@@ -451,22 +460,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # a custom header makes a cross-site form or fetch from another page impossible without a
         # CORS preflight, which this server never answers
         if self.headers.get("X-Art-Home") != "1":
-            self._json({"error": "missing X-Art-Home header"}, 403)
+            self._json({"error": "missing X-Art-Home header"}, 403, cors=False)
             return
         try:
             if path == "/api/photos/pick":
                 job = photos.PICKER.start(config().get("photos", {}).get("max_pick", 0))
-                self._json({k: v for k, v in job.items() if k != "session"})
+                self._json({k: v for k, v in job.items() if k != "session"}, cors=False)
             elif path == "/api/photos/delete":
-                self._json({"deleted": photos.delete(self._query().get("id", [""])[0])})
+                self._json({"deleted": photos.delete(self._query().get("id", [""])[0])}, cors=False)
             elif path == "/api/photos/disconnect":
-                self._json({"signed_out": photos.logout()})
+                self._json({"signed_out": photos.logout()}, cors=False)
             else:
                 self.send_error(404)
         except photos.NotConnected as e:
-            self._json({"error": str(e)}, 409)
+            self._json({"error": str(e)}, 409, cors=False)
         except Exception as e:
-            self._json({"error": f"{e.__class__.__name__}: {e}"}, 502)
+            self._json({"error": f"{e.__class__.__name__}: {e}"}, 502, cors=False)
 
     def log_message(self, *_):
         pass

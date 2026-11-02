@@ -464,6 +464,17 @@ class HttpTest(TempDirs):
         ):
             self.assertEqual(self.request("GET", path)[0].status, 404, path)
 
+    def test_only_what_the_tv_reads_is_cross_origin(self):
+        """The photo list and thumbnails are read only by the phone page (same origin): no CORS,
+        or any page open at home could list and download the family photos. The TV keeps it."""
+        self.photo()
+        for path in ("/api/photos", "/photos/thumbs/abc.jpg"):
+            self.assertIsNone(self.request("GET", path)[0].getheader("Access-Control-Allow-Origin"), path)
+        r, _ = self.request("POST", "/api/photos/disconnect", {"X-Art-Home": "1"})
+        self.assertIsNone(r.getheader("Access-Control-Allow-Origin"))
+        for path in ("/api/home", "/photos/abc.jpg"):
+            self.assertEqual(self.request("GET", path)[0].getheader("Access-Control-Allow-Origin"), "*", path)
+
     def test_the_phone_page_and_its_state(self):
         r, body = self.request("GET", "/photos")
         self.assertEqual(r.status, 200)
