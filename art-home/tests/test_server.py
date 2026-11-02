@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from typing import ClassVar
 from unittest import mock
 
@@ -60,6 +61,10 @@ class TempDirs(unittest.TestCase):
             mock.patch.object(server, "APP", self.tmp / "package"),
             mock.patch.object(server, "log", lambda msg: None),
             mock.patch.object(server.photos, "DATA", self.tmp / "data"),
+            mock.patch.object(server.photos, "_access", {"token": None, "until": 0.0}),
+            mock.patch.object(server.photos, "_refused", {"sign_in": None}, create=True),
+            mock.patch.object(server.photos, "PICKER", server.photos.Picker()),
+            mock.patch.object(server, "_strangers", set(), create=True),
         ]
         for p in patches:
             p.start()
@@ -267,6 +272,22 @@ class TurnOffTest(TempDirs):
             self.assertEqual(r["reason"], "10.0.0.99 is not a TV in the config")
         self.assertEqual(self.calls, [])
 
+    def test_a_refused_address_is_logged_once(self):
+        # a TV whose address changed (no reservation in the router) is no longer turned off at night;
+        # the answer only goes back to the TV, so the log is the one trace of it
+        self.write_config(self.TWO)
+        logged = []
+        with self.at(2), mock.patch.object(server, "log", logged.append):
+            for _ in range(2):
+                r = server.turn_off(200, client_ip="10.0.0.99", dry_run=True)
+                self.assertEqual(r["reason"], "10.0.0.99 is not a TV in the config")
+            server.turn_off(200, client_ip="10.0.0.98", dry_run=True)
+            server.turn_off(200, client_ip="10.0.0.5", dry_run=True)  # a listed TV: nothing to report
+        self.assertEqual(len(logged), 2)
+        self.assertIn("turn-off refused, 10.0.0.99 is not a TV in the config", logged[0])
+        self.assertIn("10.0.0.98", logged[1])
+        self.assertEqual(self.calls, [])
+
 
 class PerTvTest(unittest.TestCase):
     CFG: ClassVar = {
@@ -401,6 +422,20 @@ class HttpTest(TempDirs):
         )
         self.assertEqual(json.loads(self.request("GET", "/api/home")[1])["apps"], [{"id": "y"}])
 
+    def test_home_for_an_address_not_in_the_config_is_logged_once(self):
+        logged = []
+        with mock.patch.object(server, "log", logged.append):
+            # listed by address: nothing to report, and nothing without a TV list either
+            for tvs in ([{"ip": "127.0.0.1"}], None):
+                self.write_config({"demo": True, "apps": [{"id": "x"}], **({"tvs": tvs} if tvs else {})})
+                self.request("GET", "/api/home")
+            self.assertEqual(logged, [])
+            self.write_config({"demo": True, "apps": [{"id": "x"}], "tvs": [{"ip": "10.0.0.5", "apps": []}]})
+            for _ in range(2):
+                self.assertEqual(json.loads(self.request("GET", "/api/home")[1])["apps"], [{"id": "x"}])
+        self.assertEqual(len(logged), 1)
+        self.assertIn("127.0.0.1 is not a TV in the config, it gets the shared settings", logged[0])
+
     def test_turn_off_answers_the_decision(self):
         r, body = self.request("POST", "/api/turn-off?idle_min=130&dry_run=1")
         self.assertEqual((r.status, json.loads(body)["turned_off"]), (200, False))
@@ -495,6 +530,38 @@ class HttpTest(TempDirs):
         r, body = self.request("POST", "/api/photos/pick", {"X-Art-Home": "1"})
         self.assertEqual(r.status, 409)
         self.assertIn("google-client.json", json.loads(body)["error"])
+
+    def signed_in_here(self):
+        d = self.tmp / "data"
+        d.mkdir(exist_ok=True)
+        client = {"installed": {"client_id": "C", "client_secret": "S"}}
+        (d / "google-client.json").write_text(json.dumps(client))
+        (d / "google-token.json").write_text(json.dumps({"refresh_token": "RT"}))
+
+    def google_token_answers(self, status, error):
+        def post(url, fields):
+            answer = io.BytesIO(json.dumps({"error": error}).encode())
+            raise urllib.error.HTTPError(url, status, "x", {}, answer)
+
+        return mock.patch.object(server.photos, "_post_form", post)
+
+    def test_a_sign_in_google_refused_asks_to_sign_in_again(self):
+        self.signed_in_here()
+        self.assertTrue(json.loads(self.request("GET", "/api/photos")[1])["signed_in"])
+        with self.google_token_answers(400, "invalid_grant"):
+            r, body = self.request("POST", "/api/photos/pick", {"X-Art-Home": "1"})
+        self.assertEqual(r.status, 409)
+        self.assertIn("Sign in again on the server: python3 photos.py login", json.loads(body)["error"])
+        s = json.loads(self.request("GET", "/api/photos")[1])
+        self.assertEqual((s["client"], s["signed_in"], s["job"]["state"]), (True, False, "idle"))
+
+    def test_google_failing_for_a_moment_is_still_a_502_and_still_signed_in(self):
+        self.signed_in_here()
+        with self.google_token_answers(500, "backend_error"):
+            r, body = self.request("POST", "/api/photos/pick", {"X-Art-Home": "1"})
+        self.assertEqual(r.status, 502)
+        self.assertIn("HTTPError", json.loads(body)["error"])
+        self.assertTrue(json.loads(self.request("GET", "/api/photos")[1])["signed_in"])
 
     def test_unknown_paths_are_404(self):
         self.assertEqual(self.request("GET", "/nope")[0].status, 404)

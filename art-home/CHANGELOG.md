@@ -11,6 +11,18 @@ Art Home (`art-home/`).
   its date. `photos.py login` signs in once (Desktop-app OAuth client, loopback, PKCE). Standard library
   only, like the rest of the server.
 - The Docker example now mounts the whole `server/` folder, plus a writable `data/` for the photos.
+- **Fix: a double tap on "Choose photos" opened two choices at Google**, and half an hour later the page
+  said "the choice took too long" although the photos had arrived. The job is now reserved before the
+  server asks Google, a second tap gets that same job, the button stays disabled while the request runs,
+  and a thread of a replaced pick no longer writes over the page. Two downloads of the same photo at once
+  no longer put it twice in the catalogue.
+- **Fix: an expired or revoked Google sign-in** (`invalid_grant`, every 7 days on a *Testing* project)
+  showed "HTTP Error 400: Bad Request" while the page still said signed in. It is now a 409 that says to
+  sign in again, and the page shows the sign-in step until a new sign-in is saved. Google failing for a
+  moment (5xx) is still a 502 and does not sign you out.
+- A turn-off request or an `/api/home` from an address that is not a TV in `tvs` is now logged, once per
+  address: a TV whose address changed (no reservation in the router) used to lose its own settings and
+  stop being turned off at night without a trace. The decision itself is unchanged.
 - **Several TVs on one server.** List them in `tvs` (each with its `ip`); a TV may set its own `apps`,
   `energy` and `art`. A turn-off request now turns off **the TV that asked**, and only a TV listed in
   the config can ask: before, a second TV (or a desktop preview left open at night) would turn off the

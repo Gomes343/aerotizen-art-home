@@ -75,6 +75,7 @@
       noClient: 'Create an OAuth client of type "Desktop app" in Google Cloud (with the "Google Photos Picker API" enabled) and save its JSON as <code>google-client.json</code> in the server\'s data folder.',
       noLogin: 'Sign in once on the server: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Then reload this page.',
       pick: 'Choose photos from Google Photos',
+      starting: 'Opening Google Photos…',
       waiting: 'Waiting for your choice in Google Photos… ',
       openAgain: 'open it again',
       downloading: function (j) { return 'Downloading… ' + j.saved + ' of ' + j.picked; },
@@ -95,6 +96,7 @@
       noClient: 'Crie no Google Cloud um cliente OAuth do tipo "App para computador" (com a "Google Photos Picker API" ativada) e salve o JSON dele como <code>google-client.json</code> na pasta de dados do servidor.',
       noLogin: 'Entre uma vez no servidor: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Depois recarregue esta página.',
       pick: 'Escolher fotos do Google Fotos',
+      starting: 'Abrindo o Google Fotos…',
       waiting: 'Esperando a sua escolha no Google Fotos… ',
       openAgain: 'abrir de novo',
       downloading: function (j) { return 'Baixando… ' + j.saved + ' de ' + j.picked; },
@@ -122,7 +124,8 @@
   function jobLine(j) {
     var el = $('job');
     el.className = j.state === 'error' || j.state === 'expired' ? 'bad' : '';
-    if (j.state === 'waiting') {
+    if (j.state === 'starting') el.textContent = T.starting;
+    else if (j.state === 'waiting') {
       el.textContent = T.waiting;
       var a = document.createElement('a');
       a.href = j.picker_uri; a.target = '_blank'; a.rel = 'noopener'; a.textContent = T.openAgain;
@@ -132,7 +135,7 @@
     else if (j.state === 'expired') el.textContent = T.expired;
     else if (j.state === 'error') el.textContent = T.error + j.error;
     else el.textContent = '';
-    $('pick').disabled = j.state === 'downloading';
+    $('pick').disabled = j.state === 'starting' || j.state === 'downloading';
   }
 
   function grid(list) {
@@ -177,19 +180,24 @@
     jobLine(s.job || {});
     grid(s.photos || []);
     clearTimeout(timer);
-    var busy = s.job && (s.job.state === 'waiting' || s.job.state === 'downloading');
+    var busy = s.job && ['starting', 'waiting', 'downloading'].indexOf(s.job.state) >= 0;
     timer = setTimeout(refresh, busy ? 2500 : 20000);
   }
   function fail(e) { $('job').className = 'bad'; $('job').textContent = T.error + e.message; }
   function refresh() { return api('GET', '/api/photos').then(render, fail); }
 
   $('pick').onclick = function () {
+    var b = $('pick');
+    if (b.disabled) return;
+    b.disabled = true;  // one tap, one choice: a second tap while this one runs does nothing
     // open the tab now, inside the tap: a window opened after the request returns is a blocked pop-up
     var w = window.open('about:blank', '_blank');
     api('POST', '/api/photos/pick').then(function (j) {
-      if (w) w.location.href = j.picker_uri;
+      // no link yet (another tap is still opening the choice): close the tab, never open "undefined"
+      if (w) { if (j.picker_uri) w.location.href = j.picker_uri; else w.close(); }
+      b.disabled = false;
       refresh();
-    }, function (e) { if (w) w.close(); fail(e); });
+    }, function (e) { if (w) w.close(); b.disabled = false; fail(e); });
   };
   $('logout').onclick = function () {
     if (confirm(T.confirmLogout)) api('POST', '/api/photos/disconnect').then(refresh, fail);

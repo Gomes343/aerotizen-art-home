@@ -132,8 +132,8 @@ skipped).
 2. Create an **OAuth client ID** of type **Desktop app** and download its JSON as
    `server/data/google-client.json` (the data folder is `ART_HOME_DATA`; in the Docker example, `/data`).
    If the consent screen asks, a project of type *External* in *Testing* works: add your own Google
-   account as a test user. Its sign-in expires after 7 days, which only matters when you pick: sign in
-   again then.
+   account as a test user. Its sign-in expires after 7 days, which only matters when you pick: the phone
+   page then shows the sign-in step again.
 3. Sign in once on the server, with the Google account that has the photos:
 
    ```sh

@@ -65,7 +65,8 @@ def _photos_dir():
 
 
 class NotConnected(Exception):
-    """No Google client file or no sign-in yet: the page shows the setup steps."""
+    """No Google client file, no sign-in yet, or Google refused the sign-in: the page shows the setup
+    steps."""
 
 
 # ---------------------------------------------------------------- OAuth (Desktop-app client, loopback)
@@ -135,6 +136,26 @@ def exchange(code, redirect, verifier):
 
 _access = {"token": None, "until": 0.0}
 _access_lock = threading.Lock()
+# the sign-in Google refused (a hash of it), so the page stops saying "signed in". Signing in again
+# (`photos.py login`, usually from another process) saves a new one, and the page sees that.
+_refused = {"sign_in": None}
+
+
+def _saved_refresh():
+    try:
+        return json.loads(_token_file().read_text())["refresh_token"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _digest(refresh):
+    return hashlib.sha256(refresh.encode()).hexdigest()
+
+
+def signed_in():
+    """A sign-in is saved and Google has not refused it."""
+    refresh = _saved_refresh()
+    return bool(refresh) and _digest(refresh) != _refused["sign_in"]
 
 
 def connected():
@@ -142,7 +163,15 @@ def connected():
         client()
     except NotConnected:
         return False
-    return _token_file().exists()
+    return signed_in()
+
+
+def _google_error(e):
+    """The `error` code of a Google OAuth error answer ("invalid_grant"), or ""."""
+    try:
+        return str(json.loads(e.read() or b"{}").get("error") or "")[:40]
+    except (OSError, ValueError, AttributeError):
+        return ""
 
 
 def access_token(force=False):
@@ -150,19 +179,31 @@ def access_token(force=False):
         if not force and _access["token"] and time.time() < _access["until"]:
             return _access["token"]
         c = client()
+        refresh = _saved_refresh()
+        if not refresh:
+            raise NotConnected("not signed in to Google Photos (python3 photos.py login)")
         try:
-            refresh = json.loads(_token_file().read_text())["refresh_token"]
-        except (OSError, ValueError, KeyError) as e:
-            raise NotConnected("not signed in to Google Photos (python3 photos.py login)") from e
-        t = _post_form(
-            TOKEN_URL,
-            {
-                "refresh_token": refresh,
-                "client_id": c["client_id"],
-                "client_secret": c["client_secret"],
-                "grant_type": "refresh_token",
-            },
-        )
+            t = _post_form(
+                TOKEN_URL,
+                {
+                    "refresh_token": refresh,
+                    "client_id": c["client_id"],
+                    "client_secret": c["client_secret"],
+                    "grant_type": "refresh_token",
+                },
+            )
+        except urllib.error.HTTPError as e:
+            if e.code not in (400, 401):
+                raise  # Google down or busy: a passing failure, the sign-in still holds
+            # invalid_grant: expired (a "Testing" project signs out after 7 days) or revoked
+            code = _google_error(e) or f"HTTP {e.code}"
+            e.close()
+            _refused["sign_in"] = _digest(refresh)
+            raise NotConnected(
+                f"Google refused the sign-in ({code}): it expired or was revoked. "
+                "Sign in again on the server: python3 photos.py login"
+            ) from None
+        _refused["sign_in"] = None
         _access.update(token=t["access_token"], until=time.time() + int(t.get("expires_in", 3600)) - 60)
         return _access["token"]
 
@@ -273,53 +314,63 @@ class Picker:
     def __init__(self):
         self.lock = threading.Lock()
         self.job = {"state": "idle"}
+        self.run = 0  # which pick owns `job`: a thread of an older pick no longer writes to it
         self.thread = None
 
     def status(self):
         with self.lock:
             return dict(self.job)
 
-    def _set(self, **kw):
+    def _set(self, run=None, **kw):
         with self.lock:
+            if run is not None and run != self.run:
+                return False  # an older pick, replaced by a newer one: it no longer speaks for the page
             self.job.update(kw)
+            return True
 
     def start(self, max_items=0):
         with self.lock:
-            if self.job.get("state") == "waiting" and time.time() < self.job.get("expires", 0):
-                return dict(self.job)  # the phone may simply open the same link again
-            if self.job.get("state") == "downloading":
-                return dict(self.job)
+            state = self.job.get("state")
+            if state in ("starting", "downloading") or (
+                state == "waiting" and time.time() < self.job.get("expires", 0)
+            ):
+                return dict(self.job)  # a second tap, or the phone opening the same link again
+            # reserve the job BEFORE going to Google: a second tap meanwhile gets this one, not a
+            # second session (and a second thread writing over the first one's result)
+            self.run += 1
+            run = self.run
+            self.job = {"state": "starting", "picked": 0, "saved": 0, "skipped": 0, "failed": 0}
         body = {"pickingConfig": {"maxItemCount": str(int(max_items))}} if max_items else {}
-        session = _request("POST", f"{PICKER_API}/sessions", body=body)
-        with self.lock:
-            self.job = {
-                "state": "waiting",
-                "picker_uri": session["pickerUri"].rstrip("/") + "/autoclose",
-                "session": session["id"],
-                "picked": 0,
-                "saved": 0,
-                "skipped": 0,
-                "failed": 0,
-                "expires": time.time() + _seconds(session.get("pollingConfig", {}).get("timeoutIn"), 1800),
-            }
-            job = dict(self.job)
-        self.thread = threading.Thread(target=self._run, args=(session,), name="photos-pick", daemon=True)
+        try:
+            session = _request("POST", f"{PICKER_API}/sessions", body=body)
+        except Exception:
+            self._set(run, state="idle")  # the page shows the error from this request
+            raise
+        self._set(
+            run,
+            state="waiting",
+            picker_uri=session["pickerUri"].rstrip("/") + "/autoclose",
+            session=session["id"],
+            expires=time.time() + _seconds(session.get("pollingConfig", {}).get("timeoutIn"), 1800),
+        )
+        job = self.status()
+        self.thread = threading.Thread(target=self._run, args=(session, run), name="photos-pick", daemon=True)
         self.thread.start()
         return job
 
-    def _run(self, session):
+    def _run(self, session, run):
         sid = session["id"]
         try:
-            if not self._wait(session):
+            if not self._wait(session, run):
                 return
-            self._set(state="downloading")
-            for item in self._picked(sid):
-                self._download(item)
-            self._set(state="done", finished=time.time())
+            self._set(run, state="downloading")
+            for item in self._picked(sid, run):
+                self._download(item, run)
+            self._set(run, state="done", finished=time.time())
             job = self.status()
             log(f"{job['saved']} new, {job['skipped']} skipped, {job['failed']} failed")
         except Exception as e:
-            self._set(state="error", error=f"{e.__class__.__name__}: {e}")
+            self._set(run, state="error", error=f"{e.__class__.__name__}: {e}")
             log(f"picking failed: {e.__class__.__name__}: {e}")
         finally:
             try:
@@ -327,37 +378,52 @@ class Picker:
             except Exception as e:
                 log(f"could not delete session ({e.__class__.__name__}); Google expires it anyway")
 
-    def _wait(self, session):
+    def _owned(self, run):
+        """This pick's deadline, or None once a newer pick replaced it."""
+        with self.lock:
+            return self.job.get("expires", 0) if run == self.run else None
+
+    def _count(self, run, key, n=1):
+        with self.lock:
+            if run is None or run == self.run:
+                self.job[key] = self.job.get(key, 0) + n
+
+    def _wait(self, session, run):
         sid = session["id"]
         interval = _seconds(session.get("pollingConfig", {}).get("pollInterval"), 5)
-        while time.time() < self.status().get("expires", 0):
+        while True:
+            expires = self._owned(run)
+            if expires is None:
+                return False  # replaced (a new tap after this one ran out): leave the page to it
+            if time.time() >= expires:
+                break
             s = _request("GET", f"{PICKER_API}/sessions/{sid}")
             if s.get("mediaItemsSet"):
                 return True
             interval = _seconds(s.get("pollingConfig", {}).get("pollInterval"), interval)
             time.sleep(max(MIN_POLL_S, interval))
-        self._set(state="expired")
+        self._set(run, state="expired")
         return False
 
-    def _picked(self, sid):
+    def _picked(self, sid, run):
         token = ""
         while True:
             q = {"sessionId": sid, "pageSize": 100, **({"pageToken": token} if token else {})}
             page = _request("GET", f"{PICKER_API}/mediaItems?{urllib.parse.urlencode(q)}")
             batch = page.get("mediaItems", [])
-            self._set(picked=self.status()["picked"] + len(batch))
+            self._count(run, "picked", len(batch))
             yield from batch
             token = page.get("nextPageToken")
             if not token:
                 return
 
-    def _download(self, item):
+    def _download(self, item, run=None):
         media_id, f = item.get("id"), item.get("mediaFile") or {}
         if item.get("type") != "PHOTO" or not media_id or not f.get("baseUrl"):
-            self._set(skipped=self.status()["skipped"] + 1)
+            self._count(run, "skipped")
             return
         if any(p.get("id") == media_id for p in catalog()):
-            self._set(skipped=self.status()["skipped"] + 1)
+            self._count(run, "skipped")
             return
         try:
             kind, body = _request("GET", f["baseUrl"] + FIT, raw=True)
@@ -366,7 +432,7 @@ class Picker:
                 raise ValueError(f"unexpected content type {kind!r}")
             _, thumb = _request("GET", f["baseUrl"] + THUMB, raw=True)
         except Exception as e:
-            self._set(failed=self.status()["failed"] + 1)
+            self._count(run, "failed")
             log(f"download failed ({e.__class__.__name__})")
             return
         name = _name(media_id, ext)
@@ -383,8 +449,12 @@ class Picker:
             "added": time.strftime("%Y-%m-%d"),
         }
         with _catalog_lock:
-            _save_catalog([*catalog(), entry])
-        self._set(saved=self.status()["saved"] + 1)
+            current = catalog()  # read again under the lock: the check above may be stale by now
+            if any(p.get("id") == media_id for p in current):
+                self._count(run, "skipped")
+                return
+            _save_catalog([*current, entry])
+        self._count(run, "saved")
 
 
 PICKER = Picker()
@@ -401,7 +471,7 @@ def status():
     job.pop("session", None)
     return {
         "client": has_client,
-        "signed_in": _token_file().exists(),
+        "signed_in": signed_in(),
         "count": len(catalog()),
         "photos": sorted(catalog(), key=lambda p: p.get("added") or "", reverse=True),
         "job": job,

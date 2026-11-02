@@ -285,6 +285,21 @@ def for_tv(cfg, client_ip):
     return {**cfg, **{k: tv[k] for k in PER_TV if k in tv}}
 
 
+# A TV is known by its address, so a TV whose address changed (no reservation in the router) quietly
+# becomes a stranger: shared settings instead of its own, and no turning off at night. Say so in the
+# log, once per address and kind, so it can be found (a desktop preview shows up here too, harmlessly).
+_strangers = set()
+_strangers_lock = threading.Lock()
+
+
+def note_stranger(kind, client_ip, msg):
+    with _strangers_lock:
+        if (kind, client_ip) in _strangers:
+            return
+        _strangers.add((kind, client_ip))
+    log(msg)
+
+
 def photo_every(ph):
     """Every Nth picture is a photo (1 = photos only); 0 = photos off for this TV or a bad value."""
     if not ph.get("enabled"):
@@ -317,6 +332,11 @@ def turn_off(idle_min, client_ip=None, dry_run=False):
     if not e.get("turn_off", False):
         return {"turned_off": False, "reason": "energy.turn_off is disabled"}
     if tv is None:
+        note_stranger(
+            "turn-off",
+            client_ip,
+            f"energy: turn-off refused, {client_ip} is not a TV in the config (did a TV change address?)",
+        )
         return {"turned_off": False, "reason": f"{client_ip} is not a TV in the config"}
     if not in_window(e.get("night", "23-7"), time.localtime().tm_hour):
         return {
@@ -391,7 +411,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 }
             )
         elif path == "/api/home":
-            cfg = for_tv(cfg, self.client_address[0])
+            ip = self.client_address[0]
+            if tv_for(cfg, ip) is None and tvs(cfg):
+                note_stranger(
+                    "home",
+                    ip,
+                    f"home: {ip} is not a TV in the config, it gets the shared settings "
+                    "(did a TV change address?)",
+                )
+            cfg = for_tv(cfg, ip)
             demo_weather = {"state": "partlycloudy", "text": "Partly cloudy", "temperature": 21}
             ph = cfg.get("photos", {})
             every = photo_every(ph)
@@ -420,7 +448,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._file(ART, path[len("/art/") :], "public, max-age=604800")
         elif path == "/photos":
             self._file(HERE, "photos.html", "no-store")
-        elif path.startswith("/photos/thumbs/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values():
+        elif (
+            path.startswith("/photos/thumbs/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values()
+        ):
             # only the phone page shows thumbnails
             self._file(photos.DATA / "photos", path[len("/photos/") :], "public, max-age=604800", cors=False)
         elif path.startswith("/photos/") and pathlib.Path(path).suffix.lower() in photos.TYPES.values():

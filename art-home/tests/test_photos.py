@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.parse
 from unittest import mock
 
@@ -26,16 +27,26 @@ JPEG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"
 
 class FakeGoogle:
     """Answers like Google. `items` are the picked media items; `polls_until_done` how many session
-    reads say "still picking"; `stale` makes the first Picker call answer 401."""
+    reads say "still picking" (`never_done`: sessions that never finish); `stale` makes the first
+    Picker call answer 401; `refresh_status` is what the token endpoint answers a refresh with;
+    `session_delay`/`media_delay` slow those answers down. Sessions are S1, S2, …"""
 
     def __init__(self):
         self.items = []
         self.polls_until_done = 1
+        self.never_done = set()
+        self.poll_interval = "0.01s"
+        self.timeout_in = "5s"
         self.stale = False
         self.calls = []
         self.deleted = []
         self.media_type = "image/jpeg"
         self.revoked = []
+        self.sessions = 0
+        self.session_status = 200
+        self.session_delay = 0.0
+        self.media_delay = 0.0
+        self.refresh_status = 200
         fake = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -67,7 +78,10 @@ class FakeGoogle:
                             200 if ok else 400,
                             {"access_token": "AT0", "expires_in": 3600, "refresh_token": "RT"} if ok else {},
                         )
-                    return self._send(200, {"access_token": f"AT{len(fake.calls)}", "expires_in": 3600})
+                    if fake.refresh_status == 200:
+                        return self._send(200, {"access_token": f"AT{len(fake.calls)}", "expires_in": 3600})
+                    error = "invalid_grant" if fake.refresh_status == 400 else "backend_error"
+                    return self._send(fake.refresh_status, {"error": error})
                 if self.path == "/revoke":
                     fake.revoked.append(raw)
                     return self._send(200, {})
@@ -75,12 +89,20 @@ class FakeGoogle:
                     if not self._authorized():
                         return self._send(401, {})
                     fake.session_body = json.loads(raw or "{}")
+                    time.sleep(fake.session_delay)
+                    if fake.session_status != 200:
+                        return self._send(fake.session_status, {})
+                    fake.sessions += 1
+                    sid = f"S{fake.sessions}"
                     return self._send(
                         200,
                         {
-                            "id": "S1",
-                            "pickerUri": "https://photos.example/pick/S1",
-                            "pollingConfig": {"pollInterval": "0.01s", "timeoutIn": "5s"},
+                            "id": sid,
+                            "pickerUri": f"https://photos.example/pick/{sid}",
+                            "pollingConfig": {
+                                "pollInterval": fake.poll_interval,
+                                "timeoutIn": fake.timeout_in,
+                            },
                             "mediaItemsSet": False,
                         },
                     )
@@ -90,23 +112,26 @@ class FakeGoogle:
                 fake.calls.append(("GET", self.path, self.headers.get("Authorization")))
                 if not self._authorized():
                     return self._send(401, {})
-                if self.path == "/v1/sessions/S1":
-                    fake.polls_until_done -= 1
+                if self.path.startswith("/v1/sessions/S"):
+                    sid = self.path.rsplit("/", 1)[1]
+                    if sid not in fake.never_done:
+                        fake.polls_until_done -= 1
                     return self._send(
                         200,
                         {
-                            "id": "S1",
-                            "mediaItemsSet": fake.polls_until_done < 0,
-                            "pollingConfig": {"pollInterval": "0.01s"},
+                            "id": sid,
+                            "mediaItemsSet": sid not in fake.never_done and fake.polls_until_done < 0,
+                            "pollingConfig": {"pollInterval": fake.poll_interval},
                         },
                     )
                 if self.path.startswith("/v1/mediaItems?"):
                     q = urllib.parse.parse_qs(self.path.split("?", 1)[1])
-                    assert q["sessionId"] == ["S1"]
+                    assert q["sessionId"][0].startswith("S")
                     if not q.get("pageToken"):
                         return self._send(200, {"mediaItems": fake.items[:2], "nextPageToken": "P2"})
                     return self._send(200, {"mediaItems": fake.items[2:]})
                 if self.path.startswith("/media/"):
+                    time.sleep(fake.media_delay)
                     return self._send(200, JPEG, fake.media_type)
                 self._send(404)
 
@@ -158,9 +183,10 @@ class PhotosTest(unittest.TestCase):
             p = mock.patch.object(photos, name, value)
             p.start()
             self.addCleanup(p.stop)
-        p = mock.patch.object(photos, "_access", {"token": None, "until": 0.0})
-        p.start()
-        self.addCleanup(p.stop)
+        for name, value in {"_access": {"token": None, "until": 0.0}, "_refused": {"sign_in": None}}.items():
+            p = mock.patch.object(photos, name, value, create=True)
+            p.start()
+            self.addCleanup(p.stop)
         self.picker = photos.Picker()
         self.addCleanup(self.stop_picker)  # runs before the fake Google stops
         os.environ["TZ"] = "America/Sao_Paulo"
@@ -179,23 +205,24 @@ class PhotosTest(unittest.TestCase):
         )
         photos.exchange("CODE", "http://127.0.0.1:8796/", "verifier")
 
+    def hosted(self, m):
+        url = m["mediaFile"]["baseUrl"].replace("BASE", self.google.url)
+        return {**m, "mediaFile": {**m["mediaFile"], "baseUrl": url}}
+
     def pick(self, items):
-        self.google.items = [
-            {
-                **m,
-                "mediaFile": {
-                    **m["mediaFile"],
-                    "baseUrl": m["mediaFile"]["baseUrl"].replace("BASE", self.google.url),
-                },
-            }
-            for m in items
-        ]
+        self.google.items = [self.hosted(m) for m in items]
         job = self.picker.start()
+        self.settle()
+        return job, self.picker.status()
+
+    def settle(self, states=("starting", "waiting", "downloading")):
         for _ in range(400):
-            if self.picker.status()["state"] not in ("waiting", "downloading"):
+            if self.picker.status()["state"] not in states:
                 break
             time.sleep(0.01)
-        return job, self.picker.status()
+
+    def sessions_created(self):
+        return sum(1 for c in self.google.calls if c[:2] == ("POST", "/v1/sessions"))
 
     # ---- sign-in
     def test_sign_in_keeps_only_the_refresh_token_and_only_for_this_user(self):
@@ -287,6 +314,93 @@ class PhotosTest(unittest.TestCase):
         time.sleep(0.05)
         self.assertEqual(self.picker.status()["state"], "expired")
         self.assertEqual(self.google.deleted, ["/v1/sessions/S1"])
+
+    def test_two_taps_at_once_open_one_choice_at_google(self):
+        # the second tap arrives while the first is still asking Google for a session
+        self.sign_in()
+        self.google.polls_until_done = 10**6
+        self.google.session_delay = 0.3
+        got = []
+        taps = [threading.Thread(target=lambda: got.append(self.picker.start())) for _ in range(2)]
+        for t in taps:
+            t.start()
+            time.sleep(0.05)
+        for t in taps:
+            t.join(5)
+        self.assertEqual(self.sessions_created(), 1)
+        self.assertEqual(sorted(j["state"] for j in got), ["starting", "waiting"])  # no link yet for the 2nd
+        self.assertEqual(self.picker.status()["picker_uri"], "https://photos.example/pick/S1/autoclose")
+
+    def test_a_pick_replaced_after_running_out_never_writes_over_the_new_one(self):
+        # A runs out while its thread sleeps between two polls; a new tap opens B, which is picked
+        # and downloaded. A's thread then wakes up: the page must keep saying B is done, not "expired".
+        self.sign_in()
+        self.google.never_done = {"S1"}
+        self.google.poll_interval = "0.3s"
+        self.google.timeout_in = "1s"
+        self.google.items = [self.hosted(media("A"))]
+        self.picker.start()
+        time.sleep(0.05)  # A has polled once and sleeps 0.3 s
+        self.picker._set(expires=time.time())
+        b = self.picker.start()
+        self.assertTrue(b["picker_uri"].endswith("/pick/S2/autoclose"))
+        self.settle()
+        self.assertEqual(self.picker.status()["state"], "done")
+        time.sleep(1.5)  # past B's own deadline: A's thread has long woken up
+        end = self.picker.status()
+        self.assertEqual((end["state"], end["saved"], end["picker_uri"]), ("done", 1, b["picker_uri"]))
+        self.assertEqual(sorted(self.google.deleted), ["/v1/sessions/S1", "/v1/sessions/S2"])
+
+    def test_a_failed_start_frees_the_button(self):
+        self.sign_in()
+        self.google.session_status = 500
+        with self.assertRaises(urllib.error.HTTPError):
+            self.picker.start()
+        self.assertEqual(self.picker.status()["state"], "idle")
+        self.google.session_status = 200
+        self.google.polls_until_done = 10**6
+        self.assertEqual(self.picker.start()["state"], "waiting")
+
+    def test_the_same_photo_saved_twice_at_once_is_catalogued_once(self):
+        self.sign_in()
+        self.google.media_delay = 0.2
+        item = self.hosted(media("A"))
+        both = [threading.Thread(target=self.picker._download, args=(item,)) for _ in range(2)]
+        for t in both:
+            t.start()
+        for t in both:
+            t.join(5)
+        self.assertEqual([p["id"] for p in photos.catalog()], ["A"])
+
+    # ---- a sign-in Google no longer accepts
+    def expire_access(self):
+        photos._access.update(token=None, until=0.0)
+
+    def test_a_refused_sign_in_says_sign_in_again_and_stops_saying_signed_in(self):
+        self.sign_in()
+        self.expire_access()
+        self.google.refresh_status = 400  # invalid_grant: a "Testing" project after 7 days, or revoked
+        with self.assertRaises(photos.NotConnected) as e:
+            self.picker.start()
+        self.assertIn("invalid_grant", str(e.exception))
+        self.assertIn("photos.py login", str(e.exception))
+        self.assertIsNone(e.exception.__cause__)  # nothing of the token request rides along
+        self.assertEqual(self.picker.status()["state"], "idle")
+        s = photos.status()
+        self.assertEqual((s["client"], s["signed_in"]), (True, False))
+        self.assertFalse(photos.connected())
+        # signing in again (photos.py login, another process) brings the page back
+        self.google.refresh_status = 200
+        (self.tmp / "google-token.json").write_text(json.dumps({"refresh_token": "RT2"}))
+        self.assertTrue(photos.status()["signed_in"])
+
+    def test_google_failing_for_a_moment_is_not_a_sign_out(self):
+        self.sign_in()
+        self.expire_access()
+        self.google.refresh_status = 503
+        with self.assertRaises(urllib.error.HTTPError):
+            self.picker.start()
+        self.assertTrue(photos.status()["signed_in"])
 
     def test_an_unexpected_file_type_counts_as_failed_and_saves_nothing(self):
         self.sign_in()
