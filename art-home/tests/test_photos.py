@@ -29,7 +29,9 @@ class FakeGoogle:
     """Answers like Google. `items` are the picked media items; `polls_until_done` how many session
     reads say "still picking" (`never_done`: sessions that never finish); `stale` makes the first
     Picker call answer 401; `refresh_status` is what the token endpoint answers a refresh with;
-    `session_delay`/`media_delay` slow those answers down. Sessions are S1, S2, …"""
+    `session_delay`/`media_delay` slow those answers down; `poll_failures`/`page_failures` are answers
+    given, in order, to the next session reads / picked-item pages instead of the real one (an HTTP status,
+    or 0 to drop the connection without answering). Sessions are S1, S2, …"""
 
     def __init__(self):
         self.items = []
@@ -47,6 +49,8 @@ class FakeGoogle:
         self.session_delay = 0.0
         self.media_delay = 0.0
         self.refresh_status = 200
+        self.poll_failures = []
+        self.page_failures = []
         fake = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -58,6 +62,17 @@ class FakeGoogle:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+
+            def _fail(self, failures):
+                """Answers with the next planned failure, if any (0: the connection drops)."""
+                if not failures:
+                    return False
+                status = failures.pop(0)
+                if status:
+                    self._send(status, {"error": {"code": status}})
+                else:
+                    self.close_connection = True
+                return True
 
             def _authorized(self):
                 auth = self.headers.get("Authorization", "")
@@ -113,6 +128,8 @@ class FakeGoogle:
                 if not self._authorized():
                     return self._send(401, {})
                 if self.path.startswith("/v1/sessions/S"):
+                    if self._fail(fake.poll_failures):
+                        return None
                     sid = self.path.rsplit("/", 1)[1]
                     if sid not in fake.never_done:
                         fake.polls_until_done -= 1
@@ -127,6 +144,8 @@ class FakeGoogle:
                 if self.path.startswith("/v1/mediaItems?"):
                     q = urllib.parse.parse_qs(self.path.split("?", 1)[1])
                     assert q["sessionId"][0].startswith("S")
+                    if self._fail(fake.page_failures):
+                        return None
                     if not q.get("pageToken"):
                         return self._send(200, {"mediaItems": fake.items[:2], "nextPageToken": "P2"})
                     return self._send(200, {"mediaItems": fake.items[2:]})
@@ -178,6 +197,7 @@ class PhotosTest(unittest.TestCase):
             "REVOKE_URL": f"{g}/revoke",
             "PICKER_API": f"{g}/v1",
             "MIN_POLL_S": 0.0,
+            "PAGE_RETRY_S": 0.01,
             "log": lambda msg: None,
         }.items():
             p = mock.patch.object(photos, name, value)
@@ -213,6 +233,8 @@ class PhotosTest(unittest.TestCase):
         self.google.items = [self.hosted(m) for m in items]
         job = self.picker.start()
         self.settle()
+        if self.picker.status()["state"] in ("done", "error", "expired") and self.picker.thread:
+            self.picker.thread.join(5)  # the session is deleted after the state is set: wait for it
         return job, self.picker.status()
 
     def settle(self, states=("starting", "waiting", "downloading")):
@@ -360,6 +382,58 @@ class PhotosTest(unittest.TestCase):
         self.google.session_status = 200
         self.google.polls_until_done = 10**6
         self.assertEqual(self.picker.start()["state"], "waiting")
+
+    # ---- the network failing for a moment while the person picks
+    def deletes_before_the_end(self):
+        """DELETE calls that came before the last call to Google: the session thrown away mid-pick."""
+        return [c for c in self.google.calls[:-1] if c[0] == "DELETE"]
+
+    def test_a_blip_while_waiting_for_the_choice_does_not_throw_it_away(self):
+        self.sign_in()
+        self.google.polls_until_done = 2
+        self.google.poll_failures = [503, 0, 503]  # Google busy, the connection dropped, busy again
+        lines = []
+        with mock.patch.object(photos, "log", lines.append):
+            _, end = self.pick([media("A"), media("B")])
+        self.assertEqual((end["state"], end["saved"], end["failed"]), ("done", 2, 0))
+        self.assertEqual(sorted(p["id"] for p in photos.catalog()), ["A", "B"])
+        self.assertEqual(self.google.deleted, ["/v1/sessions/S1"])
+        self.assertEqual(self.deletes_before_the_end(), [])
+        self.assertEqual(self.google.calls[-1][:2], ("DELETE", "/v1/sessions/S1"))
+        # one line for the outage (three failed polls in a row), not one per poll
+        self.assertEqual(sum("trying again" in line for line in lines), 1, lines)
+
+    def test_google_refusing_the_wait_still_ends_the_pick_and_deletes_the_session(self):
+        # control: a 403 is not a blip
+        self.sign_in()
+        self.google.polls_until_done = 2
+        self.google.poll_failures = [403]
+        _, end = self.pick([media("A")])
+        self.assertEqual(end["state"], "error")
+        self.assertIn("403", end["error"])
+        self.assertEqual(self.google.deleted, ["/v1/sessions/S1"])
+        self.assertEqual(photos.catalog(), [])
+        self.assertEqual(sum(1 for c in self.google.calls if c[1] == "/v1/sessions/S1" and c[0] == "GET"), 1)
+
+    def test_a_blip_reading_the_picked_items_is_tried_again(self):
+        self.sign_in()
+        self.google.page_failures = [503]
+        _, end = self.pick([media("A"), media("B"), media("C")])
+        self.assertEqual((end["state"], end["picked"], end["saved"], end["failed"]), ("done", 3, 3, 0))
+        self.assertEqual(sorted(p["id"] for p in photos.catalog()), ["A", "B", "C"])
+        self.assertEqual(self.deletes_before_the_end(), [])
+        pages = [c[1] for c in self.google.calls if c[1].startswith("/v1/mediaItems?")]
+        first_pages = [c for c in pages if "pageToken" not in c]
+        self.assertEqual(len(first_pages), 2)  # the 503, then the answer
+
+    def test_a_page_of_picked_items_still_refused_after_the_limit_ends_the_pick(self):
+        self.sign_in()
+        self.google.page_failures = [503] * 1000
+        with mock.patch.object(photos, "PAGE_GIVE_UP_S", 0.05):
+            _, end = self.pick([media("A")])
+        self.assertEqual(end["state"], "error")
+        self.assertEqual(photos.catalog(), [])
+        self.assertEqual(self.google.deleted, ["/v1/sessions/S1"])
 
     def test_the_same_photo_saved_twice_at_once_is_catalogued_once(self):
         self.sign_in()

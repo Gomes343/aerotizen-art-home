@@ -20,6 +20,11 @@ Art Home (`art-home/`).
   showed "HTTP Error 400: Bad Request" while the page still said signed in. It is now a 409 that says to
   sign in again, and the page shows the sign-in step until a new sign-in is saved. Google failing for a
   moment (5xx) is still a 502 and does not sign you out.
+- **Fix: a few seconds without internet while you pick on your phone threw the choice away.** One
+  failed poll (network down, timeout, a dropped connection, Google answering 5xx or 429) ended the pick
+  and deleted the session at Google, so the photos picked after it never arrived. The server now tries
+  again while the choice lasts, and a page of picked items is tried again for up to 10 minutes; a refused
+  sign-in and any other 4xx still end the pick. One log line per outage, not one per poll.
 - A turn-off request or an `/api/home` from an address that is not a TV in `tvs` is now logged, once per
   address: a TV whose address changed (no reservation in the router) used to lose its own settings and
   stop being turned off at night without a trace. The decision itself is unchanged.

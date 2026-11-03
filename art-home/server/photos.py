@@ -19,6 +19,7 @@ One-time setup:
 import base64
 import calendar
 import hashlib
+import http.client
 import http.server
 import json
 import os
@@ -45,6 +46,11 @@ LOGIN_PORT = 8796
 FIT = "=w2560-h1440"  # Google resizes to fit inside this box, keeping the aspect ratio
 THUMB = "=w480-h480"
 MIN_POLL_S = 1.0  # never poll Google faster than this, whatever the session suggests
+# A passing failure (network down, timeout, Google busy) while waiting for the choice or reading the
+# picked items is not the end of the pick: try again, at most this far apart, while the session lasts.
+RETRY_MAX_S = 30.0
+PAGE_RETRY_S = 15.0  # between two tries of one page of picked items
+PAGE_GIVE_UP_S = 600.0  # one page of picked items: give up after this long (10 min)
 TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 
 
@@ -246,6 +252,14 @@ def _request(method, url, body=None, raw=False):
     raise AssertionError("unreachable")
 
 
+def _passing(e):
+    """Network down, a timeout, a dropped connection, Google busy (5xx, 429): worth trying again.
+    A refused sign-in (NotConnected) and any other 4xx are not."""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500 or e.code == 429
+    return isinstance(e, (OSError, http.client.HTTPException))  # URLError, TimeoutError, IncompleteRead…
+
+
 def _seconds(duration, default):
     """Google durations come as "5s" or "1.5s"."""
     m = re.fullmatch(r"([\d.]+)s", str(duration or ""))
@@ -391,13 +405,28 @@ class Picker:
     def _wait(self, session, run):
         sid = session["id"]
         interval = _seconds(session.get("pollingConfig", {}).get("pollInterval"), 5)
+        failing = False
         while True:
             expires = self._owned(run)
             if expires is None:
                 return False  # replaced (a new tap after this one ran out): leave the page to it
             if time.time() >= expires:
                 break
-            s = _request("GET", f"{PICKER_API}/sessions/{sid}")
+            try:
+                s = _request("GET", f"{PICKER_API}/sessions/{sid}")
+            except Exception as e:
+                if not _passing(e):
+                    raise
+                if isinstance(e, urllib.error.HTTPError):
+                    e.close()
+                # the person is still picking on the phone: a blip here must not throw that choice away
+                if not failing:  # one line per outage, not one per poll
+                    name = e.__class__.__name__
+                    log(f"asking Google failed ({name}); trying again until the choice expires")
+                failing = True
+                time.sleep(min(RETRY_MAX_S, max(MIN_POLL_S, interval) * 2))
+                continue
+            failing = False  # Google answered: the next outage gets its own line
             if s.get("mediaItemsSet"):
                 return True
             interval = _seconds(s.get("pollingConfig", {}).get("pollInterval"), interval)
@@ -409,13 +438,30 @@ class Picker:
         token = ""
         while True:
             q = {"sessionId": sid, "pageSize": 100, **({"pageToken": token} if token else {})}
-            page = _request("GET", f"{PICKER_API}/mediaItems?{urllib.parse.urlencode(q)}")
+            page = self._page(f"{PICKER_API}/mediaItems?{urllib.parse.urlencode(q)}")
             batch = page.get("mediaItems", [])
             self._count(run, "picked", len(batch))
             yield from batch
             token = page.get("nextPageToken")
             if not token:
                 return
+
+    def _page(self, url):
+        """One page of picked items; a passing failure is tried again for up to PAGE_GIVE_UP_S."""
+        give_up = time.time() + PAGE_GIVE_UP_S
+        failing = False
+        while True:
+            try:
+                return _request("GET", url)
+            except Exception as e:
+                if not _passing(e) or time.time() >= give_up:
+                    raise
+                if isinstance(e, urllib.error.HTTPError):
+                    e.close()
+                if not failing:  # one line per outage, not one per try
+                    log(f"reading the picked photos failed ({e.__class__.__name__}); trying again")
+                failing = True
+                time.sleep(PAGE_RETRY_S)
 
     def _download(self, item, run=None):
         media_id, f = item.get("id"), item.get("mediaFile") or {}
