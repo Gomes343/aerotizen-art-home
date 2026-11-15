@@ -56,7 +56,9 @@ Paintings: Gustave Courbet and Claude Monet, Cleveland Museum of Art, CC0.*
   block in `launcher/i18n.js`.
 - **Several TVs, one server.** List each TV in `tvs` with its address; a TV may have its own app
   row, energy and art settings (a bedroom TV without the turn-off, say). Turning off is per TV, and
-  only a TV listed in the config can ask for it — a desktop preview left open never turns one off.
+  only a TV listed in the config with its `ip` can ask for it — a desktop preview left open never
+  turns one off. (A config with a single TV and no `ip` answers for any address, previews included:
+  give it its `ip` before setting `turn_off`.)
 - **Changes without reinstalling.** Artworks, app row, cameras, alert and energy settings all come
   from the server's `config.json`; the TV re-reads it every 10 minutes.
 
@@ -144,15 +146,22 @@ skipped).
    computer, the last page fails to load (`http://127.0.0.1:8796/?code=…`) — that is expected: copy the
    whole address from the address bar and paste it into the terminal. The sign-in is stored in
    `google-token.json` (mode 600) and grants only the Picker scope.
-4. Turn photos on in `config.json`, for every TV or per TV:
+4. Turn photos on in `config.json`, inside the entry of each TV that should show them:
 
    ```json
-   "photos": { "enabled": true, "every": 2, "show_date": true, "max_pick": 0 }
+   "tvs": [
+     { "name": "Living room", "ip": "192.168.1.20",
+       "photos": { "enabled": true, "every": 2, "show_date": true, "max_pick": 0 } }
+   ]
    ```
 
+   Per TV is the safe way: the server then hands the list of photos only to those TVs. A shared
+   `"photos": { "enabled": true }` at the top level also works, but every address that asks — any
+   browser at home, and any web page open in it — gets the list.
+
    `every`: every Nth picture is a photo (2 = artwork and photo alternate, 3 = one photo in three,
-   1 = photos only). `max_pick`: the most photos one pick may bring (0 = Google's limit, 2000). A TV
-   entry may carry its own `photos` (the example config has a bedroom with photos only).
+   1 = photos only). `max_pick`: the most photos one pick may bring (0 = Google's limit, 2000). The
+   example config has a bedroom with photos only.
 5. On your phone, open **`http://SERVER:8895/photos`** → **Choose photos**. Google Photos opens; pick and
    press *Done*. The page shows the download and the photos, each with **×** to take it off the TVs
    (it stays in Google Photos). **Sign out** there, or `python3 photos.py logout`, revokes the sign-in.
