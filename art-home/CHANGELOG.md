@@ -25,6 +25,15 @@ Art Home (`art-home/`).
   and deleted the session at Google, so the photos picked after it never arrived. The server now tries
   again while the choice lasts, and a page of picked items is tried again for up to 10 minutes; a refused
   sign-in and any other 4xx still end the pick. One log line per outage, not one per poll.
+- **Fix: the same artwork could come back within half an hour.** The server shuffled the artworks on
+  every `/api/home` and the TV, asking again every 10 minutes, swapped in the new order but kept its
+  place in it. The server now sends them in catalogue order and the TV shuffles: a new order only when
+  the set of artworks changes (compared by id, not by order) or a lap ends, so one lap shows every
+  artwork once, and the one on screen is never shown twice in a row. Needs the new TV package.
+- **Fix: a broken `catalog.json` took the whole `/api/home` down** (cameras pop-up, night turn-off, app
+  row) and `/healthz` with it. An unreadable catalogue now means no artworks, logged once per new error
+  and reported in `/healthz` as `art_error`; entries without a `file` are left out. `curate_art.py`
+  writes the catalogue atomically and stops with a clear message if it finds it broken.
 - A turn-off request or an `/api/home` from an address that is not a TV in `tvs` is now logged, once per
   address: a TV whose address changed (no reservation in the router) used to lose its own settings and
   stop being turned off at night without a trace. The decision itself is unchanged.

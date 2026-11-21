@@ -356,6 +356,14 @@ class WorksTest(TempDirs):
         self.assertEqual(w["id"], 1)
         self.assertNotIn("secret", w)
 
+    def test_works_come_in_catalog_order_the_tv_shuffles(self):
+        names = [f"{i}.jpg" for i in range(12)]
+        for n in names:
+            (self.tmp / "art" / n).write_bytes(b"x")
+        (self.tmp / "art" / "catalog.json").write_text(json.dumps([{"id": n, "file": n} for n in names]))
+        self.assertEqual([w["file"] for w in server.works()], names)
+        self.assertEqual(server.works(), server.works())
+
     def test_no_catalog_means_no_works(self):
         self.assertEqual(server.works(), [])
 

@@ -14,7 +14,7 @@
   var AERO = window.AeroTizen && window.AeroTizen.homewatch;   // Home service (AeroTizen)
   var FALLBACK = { title: '', artist: '', date: '', museum: '', url: 'fallback.jpg', width: 16, height: 9, color: '#1d2230' };
 
-  var state = { works: [], i: 0, photos: [], pi: 0, every: 0, photoDate: true, shown: 0,
+  var state = { works: [], worksKey: null, i: 0, photos: [], pi: 0, every: 0, photoDate: true, shown: 0,
                 apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false, misses: 0 };
   var timers = { rotate: null, frame: null };
   var $ = function (id) { return document.getElementById(id); };
@@ -85,6 +85,34 @@
     };
     pre.src = url;
   }
+  /* ---------- the order of the artworks: shuffled here, so one lap shows each artwork once ---------- */
+  // the server sends them in a fixed order; a new order is drawn only when the SET changes or a lap ends
+  function workKey(w) { return String(w.id != null ? w.id : w.file); }
+  function setKey(list) { return list.map(workKey).sort().join('\n'); }
+  // `last` (the artwork on screen) never comes first, so it is never shown twice in a row
+  function shuffled(list, last) {
+    var a = list.slice();
+    for (var k = a.length - 1; k > 0; k--) {
+      var j = Math.floor(Math.random() * (k + 1)), t = a[k]; a[k] = a[j]; a[j] = t;
+    }
+    if (last && a.length > 1 && workKey(a[0]) === workKey(last)) {
+      var f = a[0]; a[0] = a[a.length - 1]; a[a.length - 1] = f;
+    }
+    return a;
+  }
+  function takeWorks(list) {
+    var key = setKey(list);
+    if (key === state.worksKey) {   // same artworks: keep the order and the place, refresh the details
+      var byKey = {};
+      list.forEach(function (w) { byKey[workKey(w)] = w; });
+      state.works = state.works.map(function (w) { return byKey[workKey(w)]; });
+      return;
+    }
+    state.works = shuffled(list, state.works[state.i]);
+    state.worksKey = key;
+    state.i = -1;
+  }
+
   function photosOn() { return state.every > 0 && state.photos.length > 0; }
   function pool() { return state.works.length + (photosOn() ? state.photos.length : 0); }
   // every `every`-th picture is a photo (1 = photos only); without artworks, photos only
@@ -96,7 +124,11 @@
       return;
     }
     if (!state.works.length) { show(FALLBACK); return; }
-    state.i = (state.i + 1) % state.works.length;
+    if (state.i + 1 >= state.works.length) {   // lap done: a new order for the next one
+      state.works = shuffled(state.works, state.works[state.i]);
+      state.i = -1;
+    }
+    state.i += 1;
     show(state.works[state.i]);
   }
   function scheduleRotation() {
@@ -177,7 +209,7 @@
       if (x.status !== 200) return failed();
       var d; try { d = JSON.parse(x.responseText); } catch (e) { return failed(); }
       var first = !pool();
-      if (d.works && d.works.length) state.works = d.works;
+      if (d.works && d.works.length) takeWorks(d.works);
       if (d.photos) { state.photos = d.photos; state.pi = Math.min(state.pi, Math.max(0, d.photos.length - 1)); }
       state.every = d.photos_every || 0;
       state.photoDate = d.photos_date !== false;

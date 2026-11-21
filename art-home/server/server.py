@@ -24,7 +24,6 @@ import json
 import mimetypes
 import os
 import pathlib
-import random
 import threading
 import time
 import urllib.parse
@@ -150,8 +149,7 @@ def works():
         return []
     _works_error = None
     items = [w for w in items if isinstance(w, dict) and isinstance(w.get("file"), str) and w["file"]]
-    items = [w for w in items if (ART / w["file"]).is_file()]
-    random.shuffle(items)
+    items = [w for w in items if (ART / w["file"]).is_file()]  # catalog order: the TV shuffles (app.js)
     keep = ("id", "title", "artist", "date", "museum", "file", "width", "height", "color")
     return [{k: w.get(k) for k in keep} for w in items]
 

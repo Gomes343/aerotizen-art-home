@@ -52,6 +52,7 @@ const IDS = ['layer-a', 'layer-b', 'veil', 'dimmer', 'ui', 'clock', 'date', 'wea
  * opts.images(url) → true (loads) | false (fails); default: everything loads
  * opts.tizen: put a `tizen` object in the window (the scripts then behave as on the TV)
  * opts.now: starting epoch ms (default 2026-01-01 12:00 local)
+ * opts.random: Math.random for the scripts (default: always just under 1, so a shuffle keeps the order)
  */
 function boot(scripts, opts = {}) {
   let now = opts.now ?? new Date(2026, 0, 1, 12, 0, 0).getTime();
@@ -123,8 +124,10 @@ function boot(scripts, opts = {}) {
     ART_HOME_SETTINGS: opts.settings || { server: 'http://server', locale: opts.locale || 'en' }
   };
   if (opts.tizen) window.tizen = opts.tizen;
+  const FakeMath = Object.create(Math);
+  FakeMath.random = opts.random || (() => 0.999999);
   const context = vm.createContext({
-    window, document, Date: FakeDate, Image: FakeImage, XMLHttpRequest: FakeXHR, JSON, Math, String, Object,
+    window, document, Date: FakeDate, Image: FakeImage, XMLHttpRequest: FakeXHR, JSON, Math: FakeMath, String, Object,
     Array, Number, isNaN, parseInt, encodeURIComponent, Promise,
     setTimeout: (fn, ms) => addTimer(fn, ms, false), clearTimeout: clear,
     setInterval: (fn, ms) => addTimer(fn, ms, true), clearInterval: clear,

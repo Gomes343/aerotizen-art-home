@@ -38,9 +38,9 @@ function fakeTizen() {
 }
 
 // server(alerts) → the fake Art Home server: /api/home, /api/alerts by `since`, /api/turn-off
-function tv({ homeData = home(), alerts = () => ({ seq: 0, alerts: [] }), images, tizen, locale, now } = {}) {
+function tv({ homeData = home(), alerts = () => ({ seq: 0, alerts: [] }), images, tizen, locale, now, random } = {}) {
   const t = boot(SCRIPTS, {
-    locale, tizen, now, images,
+    locale, tizen, now, images, random,
     server(method, url) {
       if (url.endsWith('/api/home')) return homeData ? { status: 200, body: homeData } : null;
       if (url.includes('/api/alerts?since=')) return { status: 200, body: alerts(Number(url.split('since=')[1])) };
@@ -95,6 +95,58 @@ test('one bad image skips to the next work', () => {
   const t = tv({ images: (url) => !url.endsWith('/w1.jpg') });
   t.advance(1000);
   assert.match(t.elements.credit.innerHTML, /Work 2/);
+});
+
+/* ---------- the order of the artworks ---------- */
+
+// a seeded Math.random, so a shuffle is real but the test is the same every run
+function seeded(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let r = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const many = (n) => Array.from({ length: n }, (_, k) => ({ ...WORKS[0], id: 'w' + k, title: 'W' + k, file: 'w' + k + '.jpg' }));
+// the artworks put on screen, in order, after `n` more rotations
+function shown(t, n) {
+  for (let k = 0; k < n; k++) t.advance(90 * 1000);
+  return t.imageLoads.filter((u) => u.includes('/art/')).map((u) => u.split('/art/')[1].replace('.jpg', ''));
+}
+const homeAsks = (t) => t.requests.filter((r) => r.url.endsWith('/api/home')).length;
+
+test('the same artworks again (the 10-minute reload) keep the order and the place: one lap, no repeats', () => {
+  for (let seed = 1; seed <= 5; seed++) {
+    const data = home({ works: many(8) });
+    const t = tv({ homeData: data, random: seeded(seed) });
+    data.works = many(8).reverse();   // same set, another order: the TV compares the ids, not the order
+    const lap = shown(t, 7);   // 8 pictures, from 0 to 630 s: the reload at 600 s falls inside the lap
+    assert.equal(homeAsks(t), 2, 'the TV asked the server again in the middle of the lap');
+    assert.equal(new Set(lap).size, 8, 'seed ' + seed + ': every artwork once in the lap: ' + lap);
+  }
+});
+
+test('a new artwork reshuffles, but never shows the one on screen twice in a row', () => {
+  for (let seed = 1; seed <= 5; seed++) {
+    const data = home({ works: many(6) });
+    const t = tv({ homeData: data, random: seeded(seed) });
+    const before = shown(t, 6);    // 0 to 540 s: the 7th picture is the first of a new lap
+    data.works = many(7);          // w6 arrives; the TV asks at 600 s
+    const after = shown(t, 7).slice(before.length);
+    assert.equal(homeAsks(t), 2);
+    assert.notEqual(after[0], before[before.length - 1], 'seed ' + seed + ': no repeat right after the new list');
+    assert.deepEqual([...after].sort(), many(7).map((w) => w.id).sort(), 'seed ' + seed + ': the new lap is all 7: ' + after);
+  }
+});
+
+test('each lap shows every artwork once, in a new order, with no repeat where two laps meet', () => {
+  const t = tv({ homeData: home({ works: many(4) }), random: seeded(7) });
+  const seq = shown(t, 15);   // 16 pictures = 4 laps
+  const laps = [0, 4, 8, 12].map((k) => seq.slice(k, k + 4));
+  for (const lap of laps) assert.deepEqual([...lap].sort(), ['w0', 'w1', 'w2', 'w3'], 'lap ' + lap);
+  for (let k = 1; k < seq.length; k++) assert.notEqual(seq[k], seq[k - 1], 'repeat at ' + k + ': ' + seq);
+  assert.ok(new Set(laps.map(String)).size > 1, 'the order changes from lap to lap: ' + laps.join(' | '));
 });
 
 /* ---------- photos between the artworks ---------- */
