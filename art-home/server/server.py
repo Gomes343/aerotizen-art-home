@@ -131,10 +131,26 @@ def weather(cfg):
 
 
 # ---------------------------------------------------------------- artworks
+_works_error = None  # why the catalog could not be read, for /healthz; None when it reads fine
+
+
 def works():
+    """The artworks for the TV. An unreadable catalog means no artworks, never a failed /api/home."""
+    global _works_error
     cat = ART / "catalog.json"
-    items = json.loads(cat.read_text()) if cat.exists() else []
-    items = [w for w in items if (ART / w.get("file", "")).exists()]
+    try:
+        items = json.loads(cat.read_text()) if cat.exists() else []
+        if not isinstance(items, list):
+            raise ValueError("catalog.json is not a list")
+    except (OSError, ValueError) as e:
+        msg = f"art: {cat} unreadable ({e.__class__.__name__}: {e}), showing no artworks"
+        if msg != _works_error:
+            log(msg)
+        _works_error = msg
+        return []
+    _works_error = None
+    items = [w for w in items if isinstance(w, dict) and isinstance(w.get("file"), str) and w["file"]]
+    items = [w for w in items if (ART / w["file"]).is_file()]
     random.shuffle(items)
     keep = ("id", "title", "artist", "date", "museum", "file", "width", "height", "color")
     return [{k: w.get(k) for k in keep} for w in items]
@@ -406,6 +422,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 {
                     "ok": n > 0,
                     "works": n,
+                    "art_error": _works_error,
                     "photos": len(photos.catalog()),
                     "alerts": {"seq": ALERTS.seq, "error": ALERTS.error},
                 }

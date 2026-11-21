@@ -127,12 +127,33 @@ def process(work):
     return work
 
 
-def main():
+def load():
+    """The catalog so far. A broken one stops the run with what to do, instead of a traceback."""
+    if not CATALOG.exists():
+        return []
+    try:
+        catalog = json.loads(CATALOG.read_text())
+        if not isinstance(catalog, list):
+            raise ValueError("not a list")
+    except ValueError as e:
+        msg = f"{CATALOG} is broken ({e}); fix or remove it — the images stay and are reused"
+        raise SystemExit(msg) from None
+    return catalog
+
+
+def save(catalog):
+    """Atomic, like photos.py: a power cut or Ctrl-C mid-write never leaves half a catalog."""
+    tmp = CATALOG.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(catalog, ensure_ascii=False, indent=1))
+    os.replace(tmp, CATALOG)
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", type=int, default=60)
-    target = ap.parse_args().target
+    target = ap.parse_args(argv).target
     ART.mkdir(parents=True, exist_ok=True)
-    catalog = json.loads(CATALOG.read_text()) if CATALOG.exists() else []
+    catalog = load()
     seen = {w["id"] for w in catalog}
     per_search = max(3, target // len(SEARCHES) + 2)
     for search in SEARCHES:
@@ -151,7 +172,7 @@ def main():
             seen.add(work["id"])
             added += 1
             print(f"  + {work['title'][:60]} — {work['artist']}", flush=True)
-            CATALOG.write_text(json.dumps(catalog, ensure_ascii=False, indent=1))
+            save(catalog)
     print(f"catalog: {len(catalog)} works in {CATALOG}")
 
 

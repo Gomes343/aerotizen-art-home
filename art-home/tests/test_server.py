@@ -65,6 +65,7 @@ class TempDirs(unittest.TestCase):
             mock.patch.object(server.photos, "_refused", {"sign_in": None}, create=True),
             mock.patch.object(server.photos, "PICKER", server.photos.Picker()),
             mock.patch.object(server, "_strangers", set(), create=True),
+            mock.patch.object(server, "_works_error", None, create=True),
         ]
         for p in patches:
             p.start()
@@ -358,6 +359,28 @@ class WorksTest(TempDirs):
     def test_no_catalog_means_no_works(self):
         self.assertEqual(server.works(), [])
 
+    def test_a_broken_catalog_means_no_works_said_once(self):
+        (self.tmp / "art" / "a.jpg").write_bytes(b"x")
+        cat = self.tmp / "art" / "catalog.json"
+        logged = []
+        with mock.patch.object(server, "log", logged.append):
+            for broken in ('[{"id": 1, "fi', "", '{"id": 1}'):  # cut mid-write, truncated, not a list
+                cat.write_text(broken)
+                self.assertEqual(server.works(), [])
+                self.assertEqual(server.works(), [])
+            self.assertEqual(len(logged), 3)  # once per new error, not once per request
+            self.assertIn("catalog.json", logged[0])
+            cat.write_text(json.dumps([{"id": 1, "file": "a.jpg"}]))
+            self.assertEqual(len(server.works()), 1)
+            self.assertIsNone(server._works_error)
+
+    def test_entries_without_a_file_or_not_objects_are_left_out(self):
+        (self.tmp / "art" / "a.jpg").write_bytes(b"x")
+        catalog = [{"id": "no-file"}, {"id": "empty", "file": ""}, {"id": "num", "file": 5}, "a.jpg", 7, None]
+        catalog.append({"id": "ok", "file": "a.jpg"})
+        (self.tmp / "art" / "catalog.json").write_text(json.dumps(catalog))
+        self.assertEqual([w["id"] for w in server.works()], ["ok"])
+
 
 class HttpTest(TempDirs):
     def setUp(self):
@@ -383,6 +406,33 @@ class HttpTest(TempDirs):
         r, body = self.request("GET", "/healthz")
         self.assertEqual(r.status, 200)
         self.assertEqual(json.loads(body)["works"], 1)
+
+    def test_a_broken_catalog_keeps_home_and_healthz_answering(self):
+        self.write_config(
+            {
+                "demo": True,
+                "apps": [{"name": "X", "id": "x"}],
+                "energy": {"turn_off": True},
+                "alerts": {"labels": ["person"]},
+            }
+        )
+        (self.tmp / "art" / "catalog.json").write_text('[{"id": 1, "file": "a.j')
+        r, body = self.request("GET", "/api/home")
+        self.assertEqual(r.status, 200)
+        d = json.loads(body)
+        self.assertEqual(d["works"], [])
+        self.assertEqual(d["apps"], [{"name": "X", "id": "x"}])
+        self.assertEqual(d["energy"], {"turn_off": True})
+        self.assertEqual(d["alerts"], {"labels": ["person"]})
+        self.assertEqual(len(d["cameras"]["list"]), 5)
+        r, body = self.request("GET", "/healthz")
+        self.assertEqual(r.status, 200)
+        h = json.loads(body)
+        self.assertEqual((h["ok"], h["works"]), (False, 0))
+        self.assertIn("catalog.json", h["art_error"])
+
+    def test_healthz_has_no_art_error_with_a_good_catalog(self):
+        self.assertIsNone(json.loads(self.request("GET", "/healthz")[1])["art_error"])
 
     def test_home_in_demo_mode(self):
         r, body = self.request("GET", "/api/home")
