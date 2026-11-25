@@ -94,6 +94,10 @@ def _post_form(url, fields):
         return json.load(r)
 
 
+def _pick_file():
+    return DATA / "pick.json"  # the pick in progress (session id): resumed after a restart
+
+
 def _write_private(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -367,10 +371,39 @@ class Picker:
             session=session["id"],
             expires=time.time() + _seconds(session.get("pollingConfig", {}).get("timeoutIn"), 1800),
         )
+        # on disk too: a restart in the middle (of a long download, say 600 photos) resumes this pick
+        with self.lock:
+            saved = {k: self.job[k] for k in ("session", "picker_uri", "expires")}
+        _write_private(_pick_file(), json.dumps(saved))
         job = self.status()
         self.thread = threading.Thread(target=self._run, args=(session, run), name="photos-pick", daemon=True)
         self.thread.start()
         return job
+
+    def resume(self):
+        """At start-up: a pick the server was in the middle of when it stopped goes on — the photos still
+        to download arrive (the ones already here are skipped) and its session at Google is deleted."""
+        try:
+            saved = json.loads(_pick_file().read_text())
+            sid = saved["session"]
+        except FileNotFoundError:
+            return None
+        except (ValueError, KeyError, TypeError, OSError):
+            _pick_file().unlink(missing_ok=True)
+            return None
+        with self.lock:
+            if self.job.get("state") not in ("idle", "done", "error", "expired"):
+                return None
+            self.run += 1
+            run = self.run
+            # at least one look at Google even if the choice window passed: picked items stay readable
+            expires = max(float(saved.get("expires") or 0), time.time() + 120)
+            self.job = {"state": "waiting", "picked": 0, "saved": 0, "skipped": 0, "failed": 0,
+                        "session": sid, "picker_uri": saved.get("picker_uri"), "expires": expires}
+        log("resuming the pick that was running when the server stopped")
+        self.thread = threading.Thread(target=self._run, args=({"id": sid}, run), name="photos-pick", daemon=True)
+        self.thread.start()
+        return self.status()
 
     def _run(self, session, run):
         sid = session["id"]
@@ -391,6 +424,11 @@ class Picker:
                 _request("DELETE", f"{PICKER_API}/sessions/{sid}")
             except Exception as e:
                 log(f"could not delete session ({e.__class__.__name__}); Google expires it anyway")
+            try:
+                if json.loads(_pick_file().read_text()).get("session") == sid:
+                    _pick_file().unlink()
+            except (OSError, ValueError, AttributeError):
+                pass
 
     def _owned(self, run):
         """This pick's deadline, or None once a newer pick replaced it."""

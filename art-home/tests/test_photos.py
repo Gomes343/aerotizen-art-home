@@ -294,6 +294,41 @@ class PhotosTest(unittest.TestCase):
         self.assertEqual({c[1].split("=", 1)[1] for c in downloads}, {"w2560-h1440", "w480-h480"})
         self.assertTrue(all(c[2] and c[2].startswith("Bearer ") for c in downloads))
 
+    def test_a_pick_cut_by_a_restart_goes_on_when_the_server_starts_again(self):
+        self.sign_in()
+        self.google.never_done = {"S1"}  # still picking on the phone when the server stops
+        self.google.items = [self.hosted(m) for m in (media("A"), media("B"), media("C"))]
+        self.picker.start()
+        self.settle(("starting",))
+        f = self.tmp / "pick.json"
+        saved = f.read_text()
+        self.assertEqual(json.loads(saved)["session"], "S1")
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+        self.picker._download(self.google.items[0])  # one photo arrived before the stop
+        self.stop_picker()  # the old process is gone: what it leaves on disk is the saved pick
+        f.write_text(saved)
+        self.google.deleted.clear()
+        self.google.never_done = set()
+        self.google.polls_until_done = 0
+        self.picker = photos.Picker()  # the server starts again
+        self.assertEqual(self.picker.resume()["state"], "waiting")
+        self.settle()
+        self.picker.thread.join(5)
+        end = self.picker.status()
+        self.assertEqual((end["state"], end["saved"], end["skipped"]), ("done", 2, 1))
+        self.assertEqual(sorted(p["id"] for p in photos.catalog()), ["A", "B", "C"])
+        self.assertEqual(self.google.deleted, ["/v1/sessions/S1"])
+        self.assertFalse(f.exists())
+        self.assertIsNone(photos.Picker().resume())  # nothing left to resume
+
+    def test_a_finished_pick_leaves_nothing_to_resume_and_a_broken_file_is_dropped(self):
+        self.sign_in()
+        self.pick([media("A")])
+        self.assertFalse((self.tmp / "pick.json").exists())
+        (self.tmp / "pick.json").write_text("{not json")
+        self.assertIsNone(photos.Picker().resume())
+        self.assertFalse((self.tmp / "pick.json").exists())
+
     def test_picking_the_same_photo_again_does_not_download_it_twice(self):
         self.sign_in()
         self.pick([media("A")])

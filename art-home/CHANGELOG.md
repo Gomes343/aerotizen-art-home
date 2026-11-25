@@ -5,6 +5,10 @@ Art Home (`art-home/`).
 
 ## Unreleased
 
+- **Fix: a restart in the middle of a pick lost it.** The pick lived only in memory: restarting the server
+  while it downloaded (600 photos take a while) left the rest of the choice behind, with no way back to
+  that session at Google. The pick in progress is now kept in `data/pick.json` (mode 600) and resumed when
+  the server starts: the photos already here are skipped, the rest arrive, and the session is deleted.
 - **Photos standing up share the screen** (`photos.mosaic`, on by default). On a TV lying down, a portrait
   photo alone left two thirds of the screen empty. Now a standing photo comes with two more: three standing
   side by side, or — half of the time, while lying photos remain — a lying one a little smaller between two

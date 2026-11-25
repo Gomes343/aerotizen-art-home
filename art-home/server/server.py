@@ -531,4 +531,5 @@ if __name__ == "__main__":
     port = int(config().get("server", {}).get("port", 8895))
     log(f"art-home server on 0.0.0.0:{port} (config {CONFIG}, art {ART})")
     threading.Thread(target=ALERTS.run, name="alerts", daemon=True).start()
+    photos.PICKER.resume()  # a pick cut by a restart goes on
     http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
