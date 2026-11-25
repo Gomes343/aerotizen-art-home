@@ -538,6 +538,13 @@ class HttpTest(TempDirs):
         d = json.loads(self.request("GET", "/api/home")[1])
         self.assertEqual((d["photos"], d["photos_every"]), ([], 0))
 
+    def test_the_mosaic_is_on_unless_the_tv_turns_it_off(self):
+        self.photo()
+        self.write_config({"demo": True, "photos": {"enabled": True}})
+        self.assertIs(json.loads(self.request("GET", "/api/home")[1])["photos_mosaic"], True)
+        self.write_config({"demo": True, "photos": {"enabled": True, "mosaic": False}})
+        self.assertIs(json.loads(self.request("GET", "/api/home")[1])["photos_mosaic"], False)
+
     def test_photos_are_off_by_default_and_a_bad_ratio_turns_them_off(self):
         self.photo()
         self.assertEqual(json.loads(self.request("GET", "/api/home")[1])["photos_every"], 0)

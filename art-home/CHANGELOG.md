@@ -5,6 +5,11 @@ Art Home (`art-home/`).
 
 ## Unreleased
 
+- **Photos standing up share the screen** (`photos.mosaic`, on by default). On a TV lying down, a portrait
+  photo alone left two thirds of the screen empty. Now a standing photo comes with two more: three standing
+  side by side, or — half of the time, while lying photos remain — a lying one a little smaller between two
+  standing ones. Each photo is whole (no cropping), each still shows once per lap, and the caption gives
+  the dates from the oldest to the newest. A lying photo is shown alone, as before.
 - **Your own photos from Google Photos, between the artworks** (optional, per TV). Pick them on your phone
   at `/photos` (Google's Photos Picker API); the server downloads them once into its data folder and the
   TV alternates artwork and photo (`photos.every`), matted in the photo's own colour and captioned with

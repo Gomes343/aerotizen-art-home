@@ -160,7 +160,9 @@ skipped).
    browser at home, and any web page open in it — gets the list.
 
    `every`: every Nth picture is a photo (2 = artwork and photo alternate, 3 = one photo in three,
-   1 = photos only). `max_pick`: the most photos one pick may bring (0 = Google's limit, 2000). The
+   1 = photos only). `mosaic` (on unless `false`): a photo standing up shares the screen with two more —
+   three standing side by side, or a lying one a little smaller between two standing ones; a lying photo
+   is shown alone, and no photo is ever cropped. `max_pick`: the most photos one pick may bring (0 = Google's limit, 2000). The
    example config has a bedroom with photos only.
 5. On your phone, open **`http://SERVER:8895/photos`** → **Choose photos**. Google Photos opens; pick and
    press *Done*. The page shows the download and the photos, each with **×** to take it off the TVs

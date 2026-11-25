@@ -190,6 +190,70 @@ test('with every photo failing too it stops after one lap of artworks and photos
   assert.equal(t.imageLoads.filter((u) => /\/(art|photos)\//.test(u)).length, WORKS.length + PHOTOS.length);
 });
 
+/* ---------- mosaic: photos standing up share the screen ---------- */
+
+const pic = (id, w, h, date = '2025-03-10') => ({ id, kind: 'photo', file: id + '.jpg', date, width: w, height: h });
+const STAND = ['s1', 's2', 's3', 's4', 's5', 's6'].map((id) => pic(id, 9, 16));
+const LIE = ['l1', 'l2'].map((id) => pic(id, 3, 2));
+// the photos of what is on screen: [] when it is not a mosaic
+function onScreen(t) {
+  const layer = [t.elements['layer-a'], t.elements['layer-b']].find((l) => l.classList.contains('shown'));
+  return layer && layer.classList.contains('with-mosaic')
+    ? [...layer.mosaic.innerHTML.matchAll(/src="[^"]*\/photos\/(\w+)\.jpg" style="left:(\d+)px;top:(\d+)px;width:(\d+)px;height:(\d+)px"/g)]
+        .map((m) => ({ id: m[1], left: +m[2], top: +m[3], width: +m[4], height: +m[5] }))
+    : [];
+}
+function laps(t, n) {
+  const seen = [];
+  for (let k = 0; k < n; k++) { t.advance(k ? 90 * 1000 : 100); const m = onScreen(t); seen.push(m.length ? m.map((p) => p.id) : ['single']); }
+  return seen;
+}
+
+test('mosaic: three standing photos side by side, each whole and inside the screen', () => {
+  const t = tv({ homeData: home({ photos: STAND.slice(0, 3), photos_every: 1, photos_mosaic: true }) });
+  t.advance(100);
+  const m = onScreen(t);
+  assert.deepEqual(m.map((p) => p.id), ['s1', 's2', 's3']);
+  m.forEach((p) => {
+    assert.ok(Math.abs(p.width / p.height - 9 / 16) < 0.01, 'not cropped');
+    assert.ok(p.left >= 0 && p.left + p.width <= 1920 && p.top >= 0 && p.top + p.height <= 1080);
+  });
+  assert.ok(m[0].left + m[0].width < m[1].left && m[1].left + m[1].width < m[2].left, 'side by side, with a gap');
+});
+
+test('mosaic: half of the time a lying photo, smaller, sits between two standing ones', () => {
+  // the shuffle keeps the order (two draws near 1), then the coin says "lying in the middle" (0.1)
+  const draws = [0.999, 0.999, 0.1]; let n = 0;
+  const t = tv({ random: () => draws[n++ % 3], homeData: home({ works: [], photos: [STAND[0], LIE[0], STAND[1]], photos_every: 1, photos_mosaic: true }) });
+  t.advance(100);
+  const m = onScreen(t);
+  assert.equal(m.length, 3);
+  assert.equal(m[1].id, 'l1');
+  assert.ok(m[1].height < m[0].height && Math.abs(m[1].width / m[1].height - 1.5) < 0.01);
+  assert.equal(m[0].top + m[0].height / 2, m[1].top + m[1].height / 2, 'centred on the same line');
+});
+
+test('mosaic: a lying photo is shown alone; each photo once per lap', () => {
+  const t = tv({ homeData: home({ photos: [...STAND, ...LIE], photos_every: 1, photos_mosaic: true }) });
+  const seen = laps(t, 4);
+  assert.deepEqual(seen, [['s1', 's2', 's3'], ['s4', 's5', 's6'], ['single'], ['single']]);
+});
+
+test('mosaic: the caption runs from the oldest date to the newest', () => {
+  const ph = [pic('a', 9, 16, '2025-03-12'), pic('b', 9, 16, '2024-01-05'), pic('c', 9, 16, '2025-03-12')];
+  const t = tv({ locale: 'pt-BR', homeData: home({ photos: ph, photos_every: 1, photos_mosaic: true }) });
+  t.advance(100);
+  assert.equal(t.elements.credit.innerHTML, '<b>5 de janeiro de 2024 – 12 de março de 2025</b>');
+});
+
+test('mosaic: a photo that fails to load leaves the others; off → one photo at a time', () => {
+  const t = tv({ images: (u) => !u.includes('/s2.'), homeData: home({ photos: STAND.slice(0, 3), photos_every: 1, photos_mosaic: true }) });
+  t.advance(100);
+  assert.deepEqual(onScreen(t).map((p) => p.id), ['s1', 's3']);
+  const off = tv({ homeData: home({ photos: STAND.slice(0, 3), photos_every: 1 }) });
+  assert.deepEqual(laps(off, 3), [['single'], ['single'], ['single']]);
+});
+
 test('without the server it keeps the clock and asks again every minute', () => {
   const t = tv({ homeData: null });
   assert.match(t.elements.clock.textContent, /^12:00$/);

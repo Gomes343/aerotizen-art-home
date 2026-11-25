@@ -14,7 +14,8 @@
   var AERO = window.AeroTizen && window.AeroTizen.homewatch;   // Home service (AeroTizen)
   var FALLBACK = { title: '', artist: '', date: '', museum: '', url: 'fallback.jpg', width: 16, height: 9, color: '#1d2230' };
 
-  var state = { works: [], worksKey: null, i: 0, photos: [], pi: 0, every: 0, photoDate: true, shown: 0,
+  var state = { works: [], worksKey: null, i: 0, photos: [], photosKey: null, slides: [], pi: 0, every: 0, mosaic: false,
+                photoDate: true, shown: 0,
                 apps: DEFAULT_APPS, focus: 0, rotate_s: 90, frame_after_s: 20, layer: 0, cameras: false, misses: 0 };
   var timers = { rotate: null, frame: null };
   var $ = function (id) { return document.getElementById(id); };
@@ -34,10 +35,17 @@
     return 'rgb(' + Math.round(((n >> 16) & 255) * f) + ',' + Math.round(((n >> 8) & 255) * f) + ',' + Math.round((n & 255) * f) + ')';
   }
   function esc(s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function photoDate(iso) {
+    var d = String(iso || '').split('-').map(Number);   // "2025-03-12", already in the house's date
+    return d.length === 3 && d[1] ? T.photoDate(d[2], T.months[d[1] - 1], d[0]) : '';
+  }
   function credit(w) {
     if (w.kind === 'photo') {
-      var d = String(w.date || '').split('-').map(Number);   // "2025-03-12", already in the house's date
-      return state.photoDate && d.length === 3 && d[1] ? '<b>' + esc(T.photoDate(d[2], T.months[d[1] - 1], d[0])) + '</b>' : '';
+      // a mosaic shows its dates from the oldest to the newest: one date, or "first – last"
+      var dates = (w.group || [w]).map(function (p) { return p.date; }).filter(Boolean).sort();
+      var text = !dates.length ? '' : dates[0] === dates[dates.length - 1] ? photoDate(dates[0])
+        : [photoDate(dates[0]), photoDate(dates[dates.length - 1])].filter(Boolean).join(' – ');
+      return state.photoDate && text ? '<b>' + esc(text) + '</b>' : '';
     }
     if (!w.title) return '';
     var line2 = [w.artist, w.date].filter(Boolean).join(' · ');
@@ -55,7 +63,70 @@
     } catch (e) { return null; }   // no canvas or a tainted one: the default mat colour
   }
 
+  /* ---------- mosaic: photos standing up share the screen (no photo is ever cropped) ---------- */
+  // the box of the 1920x1080 screen the mosaic may use; with the UI on screen it steps back like a matted artwork
+  var BOX = { w: 1780, h: 960, gap: 36, small: 0.62 };   // small: a lying photo between two standing ones
+  function ratio(p) { return (p.width || 4) / (p.height || 3); }
+  function standing(p) { return ratio(p) < 1; }
+  // [{left, top, width, height}] for the photos of a slide, centred in the screen
+  function layout(group) {
+    var lying = group.length === 3 && !standing(group[1]) && standing(group[0]) && standing(group[2]);
+    var k = group.map(function (p, n) { return lying && n === 1 ? BOX.small : 1; });   // height of each, relative
+    var sum = 0;
+    group.forEach(function (p, n) { sum += ratio(p) * k[n]; });
+    var h = Math.min(BOX.h, (BOX.w - BOX.gap * (group.length - 1)) / sum);
+    var x = (1920 - (h * sum + BOX.gap * (group.length - 1))) / 2;
+    return group.map(function (p, n) {
+      var box = { left: Math.round(x), top: Math.round((1080 - h * k[n]) / 2), width: Math.round(ratio(p) * h * k[n]), height: Math.round(h * k[n]) };
+      x += ratio(p) * h * k[n] + BOX.gap;
+      return box;
+    });
+  }
+  function mosaicOf(layer) {
+    if (!layer.mosaic) { layer.mosaic = document.createElement('div'); layer.mosaic.className = 'mosaic'; layer.appendChild(layer.mosaic); }
+    return layer.mosaic;
+  }
+  function photoUrl(p) { return SERVER + '/photos/' + p.file; }
+  // a slide of several photos: loads them all, then shows the ones that loaded (one left = shown alone)
+  function showGroup(group) {
+    var left = group.length, ok = [], first = null;
+    group.forEach(function (p, n) {
+      var pre = new Image();
+      pre.crossOrigin = 'anonymous';
+      pre.onload = function () { ok[n] = p; if (!first) first = pre; done(); };
+      pre.onerror = done;
+      pre.src = photoUrl(p);
+    });
+    function done() {
+      if (--left) return;
+      var got = ok.filter(Boolean);
+      if (!got.length) { state.misses += 1; if (state.misses < pool()) nextWork(); return; }
+      if (got.length === 1) { show(got[0]); return; }
+      state.misses = 0;
+      var w = { kind: 'photo', group: got, color: got[0].color || averageColor(first) };
+      var next = layers[1 - state.layer], current = layers[state.layer];
+      next.className = 'layer with-mosaic';
+      next.style.backgroundColor = darken(w.color, 0.55);
+      var boxes = layout(got);
+      mosaicOf(next).innerHTML = got.map(function (p, n) {
+        var b = boxes[n];
+        return '<img alt="" src="' + esc(photoUrl(p)) + '" style="left:' + b.left + 'px;top:' + b.top + 'px;width:' + b.width + 'px;height:' + b.height + 'px">';
+      }).join('');
+      fadeTo(next, current, w);
+    }
+  }
+  function fadeTo(next, current, w) {
+    // two animation frames: the layer is painted before the fade starts
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      next.classList.add('shown');
+      current.classList.remove('shown');
+      state.layer = 1 - state.layer;
+      $('credit').innerHTML = credit(w);
+    }); });
+  }
+
   function show(w) {
+    if (w.slide) { if (w.slide.length > 1) { showGroup(w.slide); return; } w = w.slide[0]; }
     var photo = w.kind === 'photo';
     var url = w.url || (SERVER + (photo ? '/photos/' : '/art/') + w.file);
     var pre = new Image();
@@ -68,13 +139,7 @@
       next.className = 'layer' + (Math.abs(ratio - 16 / 9) > 0.14 ? ' matted' : '');
       next.style.backgroundColor = darken(w.color, 0.55);
       next.querySelector('img').src = url;
-      // two animation frames: the layer is painted before the fade starts
-      requestAnimationFrame(function () { requestAnimationFrame(function () {
-        next.classList.add('shown');
-        current.classList.remove('shown');
-        state.layer = 1 - state.layer;
-        $('credit').innerHTML = credit(w);
-      }); });
+      fadeTo(next, current, w);
     };
     // A broken image skips to the next one — but with the server down every image fails: after one
     // full lap the current artwork stays until the next rotation, instead of requesting forever.
@@ -113,14 +178,45 @@
     state.i = -1;
   }
 
-  function photosOn() { return state.every > 0 && state.photos.length > 0; }
-  function pool() { return state.works.length + (photosOn() ? state.photos.length : 0); }
+  /* ---------- photos: a lap of slides — a lying photo alone, standing ones in a mosaic of three ---------- */
+  // The mosaic takes the standing photo, then two more standing ones; half of the time (while lying photos
+  // remain) the middle one is a lying photo, a little smaller. Each photo is shown once per lap.
+  function slidesOf(list) {
+    var rest = shuffled(list), out = [];
+    function take(want) {
+      for (var n = 0; n < rest.length; n++) if (standing(rest[n]) === want) return rest.splice(n, 1)[0];
+      return null;
+    }
+    while (rest.length) {
+      var p = rest.shift();
+      if (!state.mosaic || !standing(p)) { out.push([p]); continue; }
+      var lie = Math.random() < 0.5 ? take(false) : null;
+      var q = take(true), r = lie ? null : take(true);
+      if (lie && !q) { rest.unshift(lie); lie = null; }   // no standing partner: the lying photo waits its turn
+      out.push(lie ? [p, lie, q] : [p, q, r].filter(Boolean));
+    }
+    return out;
+  }
+  function takePhotos(list) {
+    var key = setKey(list) + '|' + state.mosaic;
+    if (key === state.photosKey) return;
+    state.photos = list;
+    state.photosKey = key;
+    state.slides = list.length ? slidesOf(list) : [];
+    state.pi = -1;
+  }
+  function photosOn() { return state.every > 0 && state.slides.length > 0; }
+  function pool() { return state.works.length + (photosOn() ? state.slides.length : 0); }
   // every `every`-th picture is a photo (1 = photos only); without artworks, photos only
   function nextWork() {
     state.shown += 1;
     if (photosOn() && (!state.works.length || state.shown % state.every === 0)) {
-      state.pi = (state.pi + 1) % state.photos.length;
-      show(state.photos[state.pi]);
+      if (state.pi + 1 >= state.slides.length) {   // lap done: new slides, in a new order
+        state.slides = slidesOf(state.photos);
+        state.pi = -1;
+      }
+      state.pi += 1;
+      show({ slide: state.slides[state.pi] });
       return;
     }
     if (!state.works.length) { show(FALLBACK); return; }
@@ -210,7 +306,8 @@
       var d; try { d = JSON.parse(x.responseText); } catch (e) { return failed(); }
       var first = !pool();
       if (d.works && d.works.length) takeWorks(d.works);
-      if (d.photos) { state.photos = d.photos; state.pi = Math.min(state.pi, Math.max(0, d.photos.length - 1)); }
+      state.mosaic = d.photos_mosaic === true;
+      if (d.photos) takePhotos(d.photos);
       state.every = d.photos_every || 0;
       state.photoDate = d.photos_date !== false;
       if (d.cameras && d.cameras.list && d.cameras.list.length && window.Cameras) {

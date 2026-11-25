@@ -30,6 +30,12 @@ html, body {
   transition: transform 1.2s ease;
 }
 body.frame .layer.matted img { transform: none; }
+/* photos standing up: a mosaic of three, each whole (layout() in app.js places them in px) */
+.mosaic { position: absolute; inset: 0; display: none; transform: translateY(-2%) scale(0.68); transition: transform 1.2s ease; }
+.layer.with-mosaic .mosaic { display: block; }
+.layer.with-mosaic > img { display: none; }
+.mosaic img { position: absolute; object-fit: contain; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45), 0 0 0 8px rgba(255, 255, 255, 0.06); }
+body.frame .mosaic { transform: none; }
 
 /* gradient only at the top and bottom, so text reads on any painting */
 #veil {

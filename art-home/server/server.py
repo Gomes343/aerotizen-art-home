@@ -444,6 +444,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "photos": photos.items() if every else [],
                     "photos_every": every,
                     "photos_date": ph.get("show_date", True),
+                    "photos_mosaic": ph.get("mosaic", True) is not False,
                     "weather": demo_weather if cfg.get("demo") else weather(cfg),
                     "apps": cfg.get("apps", []),
                     "cameras": cameras(cfg),
