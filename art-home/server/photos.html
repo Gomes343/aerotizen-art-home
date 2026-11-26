@@ -44,6 +44,17 @@
     border: 0; background: rgba(10, 11, 14, 0.72); color: #fff; font-size: 18px; line-height: 32px; cursor: pointer;
   }
   .empty { color: var(--soft); padding: 18px 0; text-align: center; }
+  #display:empty { display: none; }
+  .tvrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+  .tvrow .tvname { font-weight: 600; }
+  .tvrow .note { display: block; font-weight: 400; font-size: 13px; color: var(--soft); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+  .seg button {
+    min-height: 40px; padding: 0 16px; border: 0; background: none; color: var(--soft);
+    font: inherit; font-size: 15px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .seg button:disabled { opacity: 0.5; }
   footer { margin-top: 24px; text-align: center; }
   footer button { background: none; border: 0; color: var(--soft); text-decoration: underline; font: inherit; cursor: pointer; padding: 8px; }
 </style>
@@ -51,6 +62,8 @@
 <body>
   <h1 id="title">Art Home</h1>
   <p class="sub" id="subtitle"></p>
+
+  <div class="card" id="display"></div>
 
   <div class="card" id="setup" hidden></div>
 
@@ -70,7 +83,7 @@
   var STRINGS = {
     en: {
       title: 'Photos on the TV',
-      subtitle: 'Pick photos in Google Photos. They are downloaded once to this server; the TV shows them between the artworks.',
+      subtitle: 'Pick photos in Google Photos. They are downloaded once to this server; each TV shows photos, artworks or both.',
       setupTitle: 'One-time setup on the server',
       noClient: 'Create an OAuth client of type "Desktop app" in Google Cloud (with the "Google Photos Picker API" enabled) and save its JSON as <code>google-client.json</code> in the server\'s data folder.',
       noLogin: 'Sign in once on the server: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Then reload this page.',
@@ -87,11 +100,16 @@
       remove: 'Remove from the TV',
       confirmRemove: 'Remove this photo from the TV? (It stays in Google Photos.)',
       logout: 'Sign out of Google Photos',
-      confirmLogout: 'Sign out? The photos already here stay; picking new ones needs signing in again.'
+      confirmLogout: 'Sign out? The photos already here stay; picking new ones needs signing in again.',
+      showTitle: 'What each TV shows',
+      photos: 'Photos', art: 'Artworks',
+      mixed: 'now: photos between the artworks',
+      noPhotos: 'no photos yet: it keeps the artworks',
+      soon: 'the TV changes within 10 minutes'
     },
     'pt-BR': {
       title: 'Fotos na TV',
-      subtitle: 'Escolha fotos no Google Fotos. Elas são baixadas uma vez para este servidor; a TV as mostra entre as obras.',
+      subtitle: 'Escolha fotos no Google Fotos. Elas são baixadas uma vez para este servidor; cada TV mostra fotos, obras ou as duas.',
       setupTitle: 'Configuração única no servidor',
       noClient: 'Crie no Google Cloud um cliente OAuth do tipo "App para computador" (com a "Google Photos Picker API" ativada) e salve o JSON dele como <code>google-client.json</code> na pasta de dados do servidor.',
       noLogin: 'Entre uma vez no servidor: <code>python3 photos.py login</code> (Docker: <code>docker exec -it art-home python photos.py login</code>). Depois recarregue esta página.',
@@ -108,10 +126,15 @@
       remove: 'Tirar da TV',
       confirmRemove: 'Tirar esta foto da TV? (Ela continua no Google Fotos.)',
       logout: 'Sair do Google Fotos',
-      confirmLogout: 'Sair? As fotos que já estão aqui ficam; para escolher novas será preciso entrar de novo.'
+      confirmLogout: 'Sair? As fotos que já estão aqui ficam; para escolher novas será preciso entrar de novo.',
+      showTitle: 'O que cada TV mostra',
+      photos: 'Fotos', art: 'Obras',
+      mixed: 'agora: fotos entre as obras',
+      noPhotos: 'sem fotos ainda: segue com as obras',
+      soon: 'a TV muda em até 10 minutos'
     }
   };
-  var T = STRINGS.en, shown = '', timer = null;
+  var T = STRINGS.en, shown = '', shownDisplay = '', changed = {}, timer = null;
   var $ = function (id) { return document.getElementById(id); };
 
   function api(method, path) {
@@ -160,6 +183,55 @@
     });
   }
 
+  // the switch: one row per TV, Photos | Artworks
+  function display(list, count) {
+    var key = JSON.stringify(list) + '|' + (count > 0) + '|' + JSON.stringify(changed) + '|' + T.photos;
+    if (key === shownDisplay) return;
+    shownDisplay = key;
+    var box = $('display');
+    box.innerHTML = '';
+    if (!list.length) return;
+    var h = document.createElement('h2');
+    h.textContent = T.showTitle;
+    box.appendChild(h);
+    list.forEach(function (tv) {
+      var row = document.createElement('div');
+      row.className = 'tvrow';
+      var name = document.createElement('span');
+      name.className = 'tvname';
+      name.textContent = tv.name;
+      var note = '';
+      if (changed[tv.key]) note = T.soon;
+      else if (tv.mode === 'photos' && !count) note = T.noPhotos;
+      else if (tv.mode === 'auto' && tv.every > 1) note = T.mixed;
+      if (note) { var n = document.createElement('span'); n.className = 'note'; n.textContent = note; name.appendChild(n); }
+      var seg = document.createElement('div');
+      seg.className = 'seg';
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', tv.name);
+      ['photos', 'art'].forEach(function (mode) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = T[mode];
+        b.setAttribute('aria-pressed', tv.mode === mode ? 'true' : 'false');
+        b.onclick = function () {
+          if (tv.mode === mode || b.disabled) return;  // one tap, one change
+          var all = seg.querySelectorAll('button');
+          for (var i = 0; i < all.length; i++) all[i].disabled = true;
+          api('POST', '/api/photos/display?tv=' + encodeURIComponent(tv.key) + '&mode=' + mode)
+            .then(function () { changed[tv.key] = true; return refresh(); }, function (e) {
+              for (var i = 0; i < all.length; i++) all[i].disabled = false;
+              fail(e);
+            });
+        };
+        seg.appendChild(b);
+      });
+      row.appendChild(name);
+      row.appendChild(seg);
+      box.appendChild(row);
+    });
+  }
+
   function render(s) {
     T = STRINGS[s.locale] || STRINGS.en;
     document.documentElement.lang = s.locale || 'en';
@@ -179,6 +251,7 @@
     $('count').textContent = T.count(s.count);
     jobLine(s.job || {});
     grid(s.photos || []);
+    display(s.display || [], s.count);
     clearTimeout(timer);
     var busy = s.job && ['starting', 'waiting', 'downloading'].indexOf(s.job.state) >= 0;
     timer = setTimeout(refresh, busy ? 2500 : 20000);

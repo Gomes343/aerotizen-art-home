@@ -5,6 +5,10 @@ Art Home (`art-home/`).
 
 ## Unreleased
 
+- **A Photos | Artworks switch per TV**, on the phone page (`/photos`). Turning photos into the only thing a
+  TV shows (or back to artworks only) meant editing `every` in the config. Now it is one tap; the choice
+  lives in `data/display.json` and wins over the config (`mode=auto` gives the mix back). The TV follows on
+  its next refresh, within 10 minutes.
 - **Fix: a restart in the middle of a pick lost it.** The pick lived only in memory: restarting the server
   while it downloaded (600 photos take a while) left the rest of the choice behind, with no way back to
   that session at Google. The pick in progress is now kept in `data/pick.json` (mode 600) and resumed when

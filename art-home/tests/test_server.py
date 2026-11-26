@@ -552,6 +552,52 @@ class HttpTest(TempDirs):
         self.assertEqual(server.photo_every({"enabled": True, "every": 0}), 1)
         self.assertEqual(server.photo_every({"enabled": True, "every": "lots"}), 0)
 
+    def test_the_switch_shows_only_photos_or_only_artworks_per_tv(self):
+        self.photo()
+        self.write_config(
+            {
+                "demo": True,
+                "tvs": [
+                    {"name": "Living", "ip": "127.0.0.1", "photos": {"enabled": True, "every": 2}},
+                    {"name": "Bedroom", "ip": "10.9.9.9", "photos": {"enabled": False}},
+                ],
+            }
+        )
+        home = lambda: json.loads(self.request("GET", "/api/home")[1])  # noqa: E731
+        self.assertEqual(home()["photos_every"], 2)  # no switch: the config's mix
+        r, body = self.request("POST", "/api/photos/display?tv=Living&mode=photos", {"X-Art-Home": "1"})
+        self.assertEqual(r.status, 200)
+        self.assertEqual(
+            [(t["key"], t["mode"]) for t in json.loads(body)["display"]], [("Living", "photos"), ("Bedroom", "auto")]
+        )
+        d = home()
+        self.assertEqual((d["photos_every"], [p["id"] for p in d["photos"]]), (1, ["P1"]))
+        self.request("POST", "/api/photos/display?tv=Living&mode=art", {"X-Art-Home": "1"})
+        d = home()
+        self.assertEqual((d["photos_every"], d["photos"]), (0, []))
+        self.request("POST", "/api/photos/display?tv=Living&mode=auto", {"X-Art-Home": "1"})
+        self.assertEqual(home()["photos_every"], 2)
+        # the switch wins over a TV whose config has photos off, and it is kept in the data folder
+        server.set_display("Bedroom", "photos")
+        self.assertEqual(json.loads((self.tmp / "data" / "display.json").read_text()), {"Bedroom": "photos"})
+        state = {t["key"]: t for t in json.loads(self.request("GET", "/api/photos")[1])["display"]}
+        self.assertEqual((state["Bedroom"]["mode"], state["Bedroom"]["every"]), ("photos", 0))
+
+    def test_the_switch_needs_the_header_a_known_tv_and_a_known_mode(self):
+        self.write_config({"tvs": [{"name": "Living", "ip": "127.0.0.1"}]})
+        self.assertEqual(self.request("POST", "/api/photos/display?tv=Living&mode=photos")[0].status, 403)
+        h = {"X-Art-Home": "1"}
+        self.assertEqual(self.request("POST", "/api/photos/display?tv=Nope&mode=photos", h)[0].status, 404)
+        self.assertEqual(self.request("POST", "/api/photos/display?tv=Living&mode=video", h)[0].status, 400)
+        self.assertFalse((self.tmp / "data" / "display.json").exists())
+
+    def test_a_broken_switch_file_means_no_switch(self):
+        (self.tmp / "data").mkdir()
+        (self.tmp / "data" / "display.json").write_text("{broken")
+        self.assertEqual(server.display_modes(), {})
+        (self.tmp / "data" / "display.json").write_text('{"Living": "video", "Bedroom": "art"}')
+        self.assertEqual(server.display_modes(), {"Bedroom": "art"})
+
     def test_photo_files_are_served_but_not_the_catalog_or_anything_outside(self):
         self.photo()
         self.assertEqual(self.request("GET", "/photos/abc.jpg")[1], b"photo")

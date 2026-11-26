@@ -167,6 +167,11 @@ skipped).
 5. On your phone, open **`http://SERVER:8895/photos`** → **Choose photos**. Google Photos opens; pick and
    press *Done*. The page shows the download and the photos, each with **×** to take it off the TVs
    (it stays in Google Photos). **Sign out** there, or `python3 photos.py logout`, revokes the sign-in.
+   The same page has a **Photos | Artworks** switch for each TV: only photos, or only artworks, whatever
+   `every` says. It is kept in the data folder (`display.json`), so it survives restarts and never touches
+   the config; the TV follows on its next refresh (within 10 minutes). A TV switched to photos with none
+   downloaded yet keeps showing the artworks. `POST /api/photos/display?tv=<name>&mode=auto` hands it back
+   to the config's mix.
 
 Notes: videos are skipped; Google does not hand out where a photo was taken, so the caption is the date
 only. The photos are served on your LAN like the artworks — anyone on it who knows the address can see

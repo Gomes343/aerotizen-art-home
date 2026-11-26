@@ -11,7 +11,9 @@ const SCRIPT = HTML.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 function el(id) {
   return { id, hidden: false, disabled: false, className: '', textContent: '', innerHTML: '', children: [],
-    firstChild: { textContent: '' }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} };
+    firstChild: { textContent: '' }, appendChild(c) { this.children.push(c); return c; },
+    attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+    querySelectorAll(tag) { return this.children.filter((c) => c.id === tag); } };
 }
 
 function boot() {
@@ -78,4 +80,36 @@ test('a failed request closes the tab and frees the button', async () => {
   assert.equal(page.windows[0].closed, true);
   assert.equal(page.els.pick.disabled, false);
   assert.match(page.els.job.textContent, /Google refused the sign-in/);
+});
+
+test('the switch: one tap asks once, and the TV row says the change is on its way', async () => {
+  const page = boot();
+  const tv = { key: 'Living room', name: 'Living room', mode: 'auto', every: 2 };
+  page.requests[0].answer(200, { ...READY, count: 3, display: [tv] });
+  await settle();
+  const row = page.els.display.children[1];
+  const [photos, art] = row.children[1].children;
+  assert.equal(photos.attrs['aria-pressed'], 'false');
+  assert.match(row.children[0].children[0].textContent, /between the artworks/);
+  photos.onclick();
+  photos.onclick(); // a double tap: the buttons are off until the server answers
+  assert.equal(posts(page).length, 1);
+  assert.equal(posts(page)[0].path, '/api/photos/display?tv=Living%20room&mode=photos');
+  posts(page)[0].answer(200, { display: [{ ...tv, mode: 'photos' }] });
+  await settle(); await settle();
+  page.requests[page.requests.length - 1].answer(200, { ...READY, count: 3, display: [{ ...tv, mode: 'photos' }] });
+  await settle();
+  const again = page.els.display.children.at(-1); // the redrawn row (this tiny DOM keeps old children)
+  assert.equal(again.children[1].children[0].attrs['aria-pressed'], 'true');
+  assert.match(again.children[0].children[0].textContent, /within 10 minutes/);
+  again.children[1].children[0].onclick(); // tapping the side already on does nothing
+  assert.equal(posts(page).length, 1);
+  assert.equal(art.attrs['aria-pressed'], 'false');
+});
+
+test('a TV switched to photos with no photos yet says it keeps the artworks', async () => {
+  const page = boot();
+  page.requests[0].answer(200, { ...READY, count: 0, display: [{ key: 'A', name: 'A', mode: 'photos', every: 2 }] });
+  await settle();
+  assert.match(page.els.display.children[1].children[0].children[0].textContent, /keeps the artworks/);
 });

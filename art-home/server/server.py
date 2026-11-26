@@ -15,6 +15,8 @@ clock, the bundled artwork and its last app row. Python standard library only.
     GET  /photos/<file>         → a downloaded photo; /photos/thumbs/<file> its thumbnail
     GET  /api/photos            → set-up state, the photos and the picking job
     POST /api/photos/pick | /api/photos/delete?id=<id> | /api/photos/disconnect   (header X-Art-Home: 1)
+    POST /api/photos/display?tv=<name>&mode=photos|art|auto → the switch: only photos, only artworks or
+                                the config's mix (header X-Art-Home: 1); the TV follows on its next /api/home
 
 Several TVs: list them in `tvs` (each with its `ip`); a TV may set its own apps, energy and art.
 """
@@ -324,6 +326,71 @@ def photo_every(ph):
         return 0
 
 
+# ---------------------------------------------------------------- what a TV shows: the switch on the phone page
+# "photos" = only photos, "art" = only artworks; no choice = what the config says (the mix of `every`).
+# Kept in the data folder (writable), never in the config (read-only in Docker). A TV without photos
+# yet keeps showing artworks: the TV falls back on its own when the photo list is empty.
+MODES = ("photos", "art")
+_display_lock = threading.Lock()
+
+
+def _display_file():
+    return photos.DATA / "display.json"
+
+
+def tv_key(tv):
+    """A TV is switched by its name, or its address when it has none."""
+    return str(tv.get("name") or tv.get("ip") or "tv")
+
+
+def display_modes():
+    try:
+        d = json.loads(_display_file().read_text())
+        return {k: v for k, v in d.items() if v in MODES} if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def set_display(key, mode):
+    """Sets (or with mode "auto" clears) the switch of one TV. Returns the new modes."""
+    if mode not in (*MODES, "auto"):
+        raise ValueError(f"mode must be one of {', '.join((*MODES, 'auto'))}")
+    with _display_lock:
+        d = display_modes()
+        if mode == "auto":
+            d.pop(key, None)
+        else:
+            d[key] = mode
+        f = _display_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1))
+        os.replace(tmp, f)
+    log(f"display: {key} → {mode}")
+    return d
+
+
+def display_state(cfg):
+    """The phone page's view: each TV with its switch and what it shows without one."""
+    modes = display_modes()
+    out = []
+    for tv in tvs(cfg):
+        k = tv_key(tv)
+        every = photo_every({**cfg, **{x: tv[x] for x in PER_TV if x in tv}}.get("photos", {}))
+        out.append({"key": k, "name": tv.get("name") or k, "mode": modes.get(k, "auto"), "every": every})
+    return out
+
+
+def every_for(cfg, tv):
+    """Every Nth picture is a photo for this TV: the switch first, then the config."""
+    mode = display_modes().get(tv_key(tv)) if tv else None
+    if mode == "photos":
+        return 1
+    if mode == "art":
+        return 0
+    return photo_every(cfg.get("photos", {}))
+
+
 # ---------------------------------------------------------------- turning the TV off (energy saving)
 _last_off = {}  # media player → when it was last turned off
 
@@ -434,10 +501,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     f"home: {ip} is not a TV in the config, it gets the shared settings "
                     "(did a TV change address?)",
                 )
+            tv = tv_for(cfg, ip)
             cfg = for_tv(cfg, ip)
             demo_weather = {"state": "partlycloudy", "text": "Partly cloudy", "temperature": 21}
             ph = cfg.get("photos", {})
-            every = photo_every(ph)
+            every = every_for(cfg, tv)
             self._json(
                 {
                     "works": works(),
@@ -473,7 +541,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # the TV needs CORS here: it averages the photo's colour in a canvas
             self._file(photos.DATA / "photos", path[len("/photos/") :], "public, max-age=604800")
         elif path == "/api/photos":
-            self._json({**photos.status(), "locale": cfg.get("locale", "en")}, cors=False)
+            self._json(
+                {**photos.status(), "locale": cfg.get("locale", "en"), "display": display_state(cfg)}, cors=False
+            )
         elif path.startswith("/demo/"):
             self._file(DEMO, path[len("/demo/") :], "no-store")
         elif path in ("/", "/app"):
@@ -509,7 +579,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json({"error": "missing X-Art-Home header"}, 403, cors=False)
             return
         try:
-            if path == "/api/photos/pick":
+            if path == "/api/photos/display":
+                q = self._query()
+                key, mode = q.get("tv", [""])[0], q.get("mode", [""])[0]
+                if key not in [tv_key(tv) for tv in tvs(config())]:
+                    self._json({"error": f"no TV called {key!r}"}, 404, cors=False)
+                    return
+                try:
+                    set_display(key, mode)
+                except ValueError as e:
+                    self._json({"error": str(e)}, 400, cors=False)
+                    return
+                self._json({"display": display_state(config())}, cors=False)
+            elif path == "/api/photos/pick":
                 job = photos.PICKER.start(config().get("photos", {}).get("max_pick", 0))
                 self._json({k: v for k, v in job.items() if k != "session"}, cors=False)
             elif path == "/api/photos/delete":
